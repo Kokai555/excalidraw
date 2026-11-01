@@ -30,7 +30,7 @@ import { LOCAL_DRAWINGS_API_PATH, MAX_DRAWING_NAME_LENGTH } from "./constants";
 
 import type { DrawingsListResponse } from "./constants";
 
-export const DEFAULT_DRAWING_NAME = "Névtelen rajz";
+export const DEFAULT_DRAWING_NAME = "Untitled drawing";
 
 const CURRENT_DRAWING_STORAGE_KEY = "excalidraw-app-current-drawing";
 const AUTOSAVE_DELAY = 800;
@@ -121,7 +121,7 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
     });
   } catch {
     throw new LocalDrawingsError(
-      "A helyi rajzszerver nem érhető el. Fut a `yarn start`?",
+      "The local drawings server is not reachable. Is `yarn start` running?",
       null,
     );
   }
@@ -135,8 +135,8 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
     throw new LocalDrawingsError(
       data?.error ||
         (data === null
-          ? "A helyi rajzszerver nem érhető el."
-          : `Szerverhiba (${response.status}).`),
+          ? "The local drawings server is not reachable."
+          : `Server error (${response.status}).`),
       data === null ? null : response.status,
     );
   }
@@ -355,7 +355,7 @@ const setBaselineFromScene = (api: ExcalidrawImperativeAPI, name: string) => {
 const flushOrThrow = async () => {
   if (!(await autosaver.flush())) {
     throw new Error(
-      "Az aktuális rajz mentése nem sikerült, ezért a művelet megszakadt.",
+      "Couldn't save the current drawing, so the action was cancelled.",
     );
   }
 };
@@ -480,7 +480,7 @@ export const saveCanvasAsDrawing = async (api: ExcalidrawImperativeAPI) => {
 /** picks a file from the disk, copies it into the drawings folder, opens it */
 export const importDrawing = async (api: ExcalidrawImperativeAPI) => {
   const file = await fileOpen({
-    description: "Excalidraw rajz",
+    description: "Excalidraw drawing",
     extensions: ["json", "excalidraw", "png", "svg"],
   });
   const data = await loadFromBlob(file, null, null);

@@ -599,7 +599,7 @@ const ExcalidrawWrapper = () => {
           }
           data.scene.appState = {
             ...data.scene.appState,
-            errorMessage: `Nem sikerült megnyitni a(z) „${currentDrawing}” rajzot: ${error?.message}`,
+            errorMessage: `Couldn't open drawing "${currentDrawing}": ${error?.message}`,
           };
         }
       }
@@ -947,11 +947,11 @@ const ExcalidrawWrapper = () => {
         runDrawingAction(async (api) => {
           if (getCurrentDrawing()) {
             if (await flushDrawingAutosave()) {
-              api.setToast({ message: "Mentve", duration: 1500 });
+              api.setToast({ message: "Saved", duration: 1500 });
             }
           } else {
             const name = await saveCanvasAsDrawing(api);
-            api.setToast({ message: `Mentve: „${name}”`, duration: 2500 });
+            api.setToast({ message: `Saved as "${name}"`, duration: 2500 });
           }
         });
       }

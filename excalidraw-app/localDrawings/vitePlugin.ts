@@ -50,19 +50,19 @@ export const resolveDrawingsDir = (dir?: string) => {
 
 const validateName = (raw: unknown): string => {
   if (typeof raw !== "string") {
-    throw new HttpError(400, "Hiányzó fájlnév.");
+    throw new HttpError(400, "Missing drawing name.");
   }
   const name = raw.normalize("NFC").trim();
   if (!name) {
-    throw new HttpError(400, "A fájlnév nem lehet üres.");
+    throw new HttpError(400, "The name can't be empty.");
   }
   if (name.length > MAX_DRAWING_NAME_LENGTH) {
-    throw new HttpError(400, "A fájlnév túl hosszú.");
+    throw new HttpError(400, "The name is too long.");
   }
   if (name.startsWith(".") || INVALID_NAME_CHARS.test(name)) {
     throw new HttpError(
       400,
-      'A fájlnév nem kezdődhet ponttal, és nem tartalmazhatja ezeket: \\ / : * ? " < > |',
+      'The name cannot start with a dot or contain any of: \\ / : * ? " < > |',
     );
   }
   return name;
@@ -70,16 +70,16 @@ const validateName = (raw: unknown): string => {
 
 const validateContent = (content: unknown): string => {
   if (typeof content !== "string") {
-    throw new HttpError(400, "Hiányzó tartalom.");
+    throw new HttpError(400, "Missing content.");
   }
   let parsed: any;
   try {
     parsed = JSON.parse(content);
   } catch {
-    throw new HttpError(400, "A tartalom nem érvényes JSON.");
+    throw new HttpError(400, "The content is not valid JSON.");
   }
   if (parsed?.type !== "excalidraw" || !Array.isArray(parsed.elements)) {
-    throw new HttpError(400, "A tartalom nem Excalidraw rajz.");
+    throw new HttpError(400, "The content is not an Excalidraw drawing.");
   }
   return content;
 };
@@ -106,7 +106,7 @@ const fileExists = async (filePath: string) => {
 const assertTrustedRequest = (req: IncomingMessage) => {
   const host = req.headers.host || "";
   if (!LOCAL_HOST_RE.test(host)) {
-    throw new HttpError(403, "Csak localhostról érhető el.");
+    throw new HttpError(403, "Only available via localhost.");
   }
   const origin = req.headers.origin;
   if (origin) {
@@ -117,12 +117,12 @@ const assertTrustedRequest = (req: IncomingMessage) => {
       // invalid origin header
     }
     if (originHost !== host) {
-      throw new HttpError(403, "Idegen eredetű kérés.");
+      throw new HttpError(403, "Cross-origin requests are not allowed.");
     }
   }
   const fetchSite = req.headers["sec-fetch-site"];
   if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
-    throw new HttpError(403, "Idegen eredetű kérés.");
+    throw new HttpError(403, "Cross-origin requests are not allowed.");
   }
 };
 
@@ -133,7 +133,7 @@ const readBody = (req: IncomingMessage): Promise<string> =>
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        reject(new HttpError(413, "A rajz túl nagy."));
+        reject(new HttpError(413, "The drawing is too large."));
         req.destroy();
         return;
       }
@@ -148,7 +148,7 @@ const readJsonBody = async (req: IncomingMessage): Promise<any> => {
   try {
     return JSON.parse(body);
   } catch {
-    throw new HttpError(400, "Érvénytelen kérés.");
+    throw new HttpError(400, "Invalid request.");
   }
 };
 
@@ -164,7 +164,7 @@ const createDrawingsStore = (dir: string) => {
     const filePath = path.join(dir, `${name}${DRAWING_FILE_EXTENSION}`);
     // defense in depth: the name is validated, but never leave the folder
     if (path.dirname(filePath) !== dir) {
-      throw new HttpError(400, "Érvénytelen fájlnév.");
+      throw new HttpError(400, "Invalid drawing name.");
     }
     return filePath;
   };
@@ -222,7 +222,7 @@ const createDrawingsStore = (dir: string) => {
         return await fs.readFile(filePathFor(name), "utf8");
       } catch (error) {
         if (isNotFound(error)) {
-          throw new HttpError(404, `A(z) „${name}” rajz nem található.`);
+          throw new HttpError(404, `Drawing "${name}" not found.`);
         }
         throw error;
       }
@@ -255,7 +255,7 @@ const createDrawingsStore = (dir: string) => {
           }
         }
       }
-      throw new HttpError(409, "Nem sikerült szabad fájlnevet találni.");
+      throw new HttpError(409, "Couldn't find a free drawing name.");
     },
 
     async rename(from: string, to: string) {
@@ -265,13 +265,13 @@ const createDrawingsStore = (dir: string) => {
         return;
       }
       if (!(await fileExists(fromPath))) {
-        throw new HttpError(404, `A(z) „${from}” rajz nem található.`);
+        throw new HttpError(404, `Drawing "${from}" not found.`);
       }
       // on case-insensitive file systems (macOS) a case-only rename targets
       // the same file, which is fine
       const isCaseOnlyRename = from.toLowerCase() === to.toLowerCase();
       if (!isCaseOnlyRename && (await fileExists(toPath))) {
-        throw new HttpError(409, `Már létezik „${to}” nevű rajz.`);
+        throw new HttpError(409, `A drawing named "${to}" already exists.`);
       }
       await fs.rename(fromPath, toPath);
     },
@@ -280,7 +280,7 @@ const createDrawingsStore = (dir: string) => {
     async trash(name: string) {
       const filePath = filePathFor(name);
       if (!(await fileExists(filePath))) {
-        throw new HttpError(404, `A(z) „${name}” rajz nem található.`);
+        throw new HttpError(404, `Drawing "${name}" not found.`);
       }
       const trashDir = path.join(dir, TRASH_DIR_NAME);
       await fs.mkdir(trashDir, { recursive: true });
@@ -343,14 +343,14 @@ const createHandler = (dir: string) => {
         return sendJson(res, 200, { name: to });
       }
 
-      throw new HttpError(404, "Ismeretlen végpont.");
+      throw new HttpError(404, "Unknown endpoint.");
     } catch (error: any) {
       if (error instanceof HttpError) {
         return sendJson(res, error.status, { error: error.message });
       }
       console.error("[local-drawings]", error);
       return sendJson(res, 500, {
-        error: `Fájlrendszer hiba: ${error?.message || error}`,
+        error: `File system error: ${error?.message || error}`,
       });
     }
   };
@@ -365,7 +365,7 @@ export const localDrawingsPlugin = (opts: { dir?: string } = {}): Plugin => {
     configureServer(server) {
       server.middlewares.use(LOCAL_DRAWINGS_API_PATH, handler);
       server.httpServer?.once("listening", () => {
-        server.config.logger.info(`  ➜  Rajzok mappája: ${dir}`);
+        server.config.logger.info(`  ➜  Drawings folder: ${dir}`);
       });
     },
     configurePreviewServer(server) {

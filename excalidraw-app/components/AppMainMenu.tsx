@@ -36,7 +36,7 @@ export const AppMainMenu: React.FC<{
           onSelect={() => props.onImportDrawing?.()}
           shortcut={getShortcutFromShortcutName("loadScene")}
         >
-          Megnyitás új rajzként…
+          Open as new drawing…
         </MainMenu.Item>
       ) : (
         <MainMenu.DefaultItems.LoadScene />

@@ -50,14 +50,14 @@ const refreshIcon = (
   </svg>
 );
 
-const relativeTimeFormat = new Intl.RelativeTimeFormat("hu", {
+const relativeTimeFormat = new Intl.RelativeTimeFormat("en", {
   numeric: "auto",
 });
 
 const formatModifiedAt = (modifiedAt: number, now: number) => {
   const seconds = Math.round((now - modifiedAt) / 1000);
   if (seconds < 45) {
-    return "épp most";
+    return "just now";
   }
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) {
@@ -71,7 +71,7 @@ const formatModifiedAt = (modifiedAt: number, now: number) => {
   if (days < 7) {
     return relativeTimeFormat.format(-days, "day");
   }
-  return new Date(modifiedAt).toLocaleDateString("hu-HU", {
+  return new Date(modifiedAt).toLocaleDateString("en", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -224,7 +224,7 @@ export const DrawingsPanel = ({
     if (sanitizeDrawingName(nextName) !== nextName) {
       excalidrawAPI?.setToast({
         message:
-          'A név nem kezdődhet ponttal, és nem tartalmazhatja ezeket: \\ / : * ? " < > |',
+          'The name cannot start with a dot or contain any of: \\ / : * ? " < > |',
         closable: true,
         duration: 5000,
       });
@@ -242,10 +242,10 @@ export const DrawingsPanel = ({
   };
 
   const filteredDrawings = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase("hu");
+    const term = search.trim().toLocaleLowerCase();
     return term
       ? list.drawings.filter((drawing) =>
-          drawing.name.toLocaleLowerCase("hu").includes(term),
+          drawing.name.toLocaleLowerCase().includes(term),
         )
       : list.drawings;
   }, [list.drawings, search]);
@@ -264,8 +264,8 @@ export const DrawingsPanel = ({
           type="button"
           className="drawings-panel__icon-button"
           onClick={toggleCollapsed}
-          title="Rajzok megnyitása"
-          aria-label="Rajzok megnyitása"
+          title="Open drawings"
+          aria-label="Open drawings"
         >
           {panelIcon}
         </button>
@@ -275,8 +275,8 @@ export const DrawingsPanel = ({
             className="drawings-panel__icon-button"
             onClick={handleCreate}
             disabled={busy}
-            title="Új rajz"
-            aria-label="Új rajz"
+            title="New drawing"
+            aria-label="New drawing"
           >
             {PlusIcon}
           </button>
@@ -288,14 +288,14 @@ export const DrawingsPanel = ({
   return (
     <aside className={clsx("drawings-panel", themeClass)}>
       <div className="drawings-panel__header">
-        <h2 className="drawings-panel__title">Rajzok</h2>
+        <h2 className="drawings-panel__title">Drawings</h2>
         <div className="drawings-panel__header-buttons">
           <button
             type="button"
             className="drawings-panel__icon-button"
             onClick={() => refresh()}
-            title="Lista frissítése"
-            aria-label="Lista frissítése"
+            title="Refresh list"
+            aria-label="Refresh list"
           >
             {refreshIcon}
           </button>
@@ -303,8 +303,8 @@ export const DrawingsPanel = ({
             type="button"
             className="drawings-panel__icon-button"
             onClick={toggleCollapsed}
-            title="Panel bezárása"
-            aria-label="Panel bezárása"
+            title="Close panel"
+            aria-label="Close panel"
           >
             {panelIcon}
           </button>
@@ -318,26 +318,26 @@ export const DrawingsPanel = ({
         disabled={!canEdit || busy}
       >
         {PlusIcon}
-        Új rajz
+        New drawing
       </button>
 
       {isCollaborating && (
         <div className="drawings-panel__notice">
-          Élő együttműködés közben a fájlmentés szünetel. A munkamenet végén a
-          „Mentés fájlként” gombbal mentheted a rajzot.
+          Saving to the file is paused during live collaboration. Afterwards you
+          can keep the drawing with "Save as file".
         </div>
       )}
 
       {canEdit && !currentName && (
         <div className="drawings-panel__notice">
-          A vásznon lévő rajz még nincs fájlba mentve.
+          The drawing on the canvas isn't saved to a file yet.
           <button
             type="button"
             className="drawings-panel__link-button"
             onClick={handleSaveCanvas}
             disabled={busy}
           >
-            Mentés fájlként
+            Save as file
           </button>
         </div>
       )}
@@ -350,7 +350,7 @@ export const DrawingsPanel = ({
             className="drawings-panel__link-button"
             onClick={() => refresh()}
           >
-            Újrapróbálás
+            Retry
           </button>
         </div>
       )}
@@ -360,7 +360,7 @@ export const DrawingsPanel = ({
           {searchIcon}
           <input
             type="search"
-            placeholder="Keresés…"
+            placeholder="Search…"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -391,10 +391,12 @@ export const DrawingsPanel = ({
           />
         ))}
         {isAvailable && !list.drawings.length && (
-          <li className="drawings-panel__empty">Még nincs rajz a mappában.</li>
+          <li className="drawings-panel__empty">
+            No drawings in this folder yet.
+          </li>
         )}
         {isAvailable && !!list.drawings.length && !filteredDrawings.length && (
-          <li className="drawings-panel__empty">Nincs találat.</li>
+          <li className="drawings-panel__empty">No matches.</li>
         )}
       </ul>
 
@@ -502,8 +504,8 @@ const DrawingItem = ({
                 type="button"
                 className="drawings-panel__icon-button"
                 onClick={onStartRename}
-                title="Átnevezés"
-                aria-label={`${drawing.name} átnevezése`}
+                title="Rename"
+                aria-label={`Rename ${drawing.name}`}
               >
                 {pencilIcon}
               </button>
@@ -511,8 +513,8 @@ const DrawingItem = ({
                 type="button"
                 className="drawings-panel__icon-button drawings-panel__icon-button--danger"
                 onClick={onDelete}
-                title="Törlés"
-                aria-label={`${drawing.name} törlése`}
+                title="Delete"
+                aria-label={`Delete ${drawing.name}`}
               >
                 {TrashIcon}
               </button>
@@ -534,7 +536,7 @@ const SaveStatus = ({
   isCollaborating: boolean;
 }) => {
   if (isCollaborating || !currentName) {
-    return <div className="drawings-panel__status">Nincs fájlhoz rendelve</div>;
+    return <div className="drawings-panel__status">Not saved to a file</div>;
   }
   if (saveState.status === "error") {
     return (
@@ -542,13 +544,13 @@ const SaveStatus = ({
         className="drawings-panel__status drawings-panel__status--error"
         title={saveState.error}
       >
-        Mentési hiba: {saveState.error}
+        Save failed: {saveState.error}
       </div>
     );
   }
   return (
     <div className="drawings-panel__status">
-      {saveState.status === "saving" ? "Mentés…" : "Minden változás mentve"}
+      {saveState.status === "saving" ? "Saving…" : "All changes saved"}
     </div>
   );
 };
@@ -586,17 +588,17 @@ const ConfirmDeleteDialog = ({
         aria-modal="true"
         aria-labelledby="drawings-panel-modal-title"
       >
-        <h3 id="drawings-panel-modal-title">Rajz törlése</h3>
+        <h3 id="drawings-panel-modal-title">Delete drawing</h3>
         <p>
-          Biztosan törlöd: <strong>„{name}”</strong>?
+          Delete <strong>"{name}"</strong>?
         </p>
         <p className="drawings-panel-modal__hint">
-          A fájl a rajzok mappáján belüli <code>.trash</code> mappába kerül,
-          onnan visszaállítható.
+          The file is moved to the <code>.trash</code> folder inside the
+          drawings folder, so it can be restored from there.
         </p>
         <div className="drawings-panel-modal__actions">
           <button type="button" onClick={onCancel}>
-            Mégse
+            Cancel
           </button>
           <button
             type="button"
@@ -604,7 +606,7 @@ const ConfirmDeleteDialog = ({
             onClick={onConfirm}
             autoFocus
           >
-            Törlés
+            Delete
           </button>
         </div>
       </div>
