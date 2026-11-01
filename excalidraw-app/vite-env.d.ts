@@ -38,6 +38,9 @@ interface ImportMetaEnv {
 
   VITE_APP_GIT_SHA: string;
 
+  // set when building for the desktop app (excalidraw-desktop)
+  VITE_APP_DESKTOP: string;
+
   MODE: string;
 
   DEV: string;
