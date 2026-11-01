@@ -1,7 +1,7 @@
 /**
  * Browser side of the local drawings feature: API client for the Vite plugin
- * (see `vitePlugin.ts`), autosave of the currently open drawing, and the
- * actions used by the drawings panel (open, create, rename, delete, …).
+ * (see `vitePlugin.ts`), app state (workspace, sidebar, current drawing),
+ * autosave of the open drawing, and the actions used by the UI.
  */
 
 import { MIME_TYPES } from "@excalidraw/common";
@@ -16,6 +16,7 @@ import {
 import { loadFromBlob } from "@excalidraw/excalidraw/data/blob";
 import { fileOpen } from "@excalidraw/excalidraw/data/filesystem";
 import { serializeAsJSON } from "@excalidraw/excalidraw/data/json";
+import { exportScene } from "@excalidraw/excalidraw/scene/export";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 import type {
@@ -26,30 +27,78 @@ import type {
 
 import { appJotaiStore, atom } from "../app-jotai";
 
-import { LOCAL_DRAWINGS_API_PATH, MAX_DRAWING_NAME_LENGTH } from "./constants";
+import {
+  DEFAULT_COLLECTION_NAME,
+  DEFAULT_WORKSPACE_NAME,
+  LOCAL_DRAWINGS_API_PATH,
+  MAX_NAME_LENGTH,
+  parseDrawingPath,
+  toDrawingPath,
+} from "./constants";
 
-import type { DrawingsListResponse } from "./constants";
+import type {
+  DrawingMeta,
+  DrawingPath,
+  RootInfo,
+  TrashItem,
+  WorkspaceData,
+} from "./constants";
 
-export const DEFAULT_DRAWING_NAME = "Untitled drawing";
+export const DEFAULT_DRAWING_NAME = "Untitled scene";
 
 const CURRENT_DRAWING_STORAGE_KEY = "excalidraw-app-current-drawing";
+const WORKSPACE_STORAGE_KEY = "excalidraw-app-workspace";
+const SORT_STORAGE_KEY = "excalidraw-app-drawings-sort";
+const SIDEBAR_OPEN_STORAGE_KEY = "excalidraw-app-drawings-sidebar-open";
 const AUTOSAVE_DELAY = 800;
 const AUTOSAVE_RETRY_DELAY = 5000;
+const THUMBNAIL_DELAY = 2000;
 
 // -----------------------------------------------------------------------------
-// state
+// storage helpers
 // -----------------------------------------------------------------------------
 
-const readStoredCurrentDrawing = (): string | null => {
+const readStorage = (key: string) => {
   try {
-    return localStorage.getItem(CURRENT_DRAWING_STORAGE_KEY) || null;
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 };
 
-/** name of the drawing the canvas is bound to (null = not saved to a file) */
-export const currentDrawingNameAtom = atom<string | null>(
+const writeStorage = (key: string, value: string | null) => {
+  try {
+    if (value === null) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, value);
+    }
+  } catch {
+    // localStorage unavailable/full — the value then only lives in memory
+  }
+};
+
+const readStoredCurrentDrawing = (): DrawingPath | null => {
+  const stored = readStorage(CURRENT_DRAWING_STORAGE_KEY);
+  if (!stored) {
+    return null;
+  }
+  if (parseDrawingPath(stored)) {
+    return stored;
+  }
+  // older layout stored only the name, the server has since moved the file
+  // into the default workspace's default collection
+  return stored.includes("/")
+    ? null
+    : toDrawingPath(DEFAULT_WORKSPACE_NAME, DEFAULT_COLLECTION_NAME, stored);
+};
+
+// -----------------------------------------------------------------------------
+// state
+// -----------------------------------------------------------------------------
+
+/** path of the drawing the canvas is bound to (null = not saved to a file) */
+export const currentDrawingPathAtom = atom<DrawingPath | null>(
   readStoredCurrentDrawing(),
 );
 
@@ -59,26 +108,85 @@ export type DrawingSaveState =
 
 export const drawingSaveStateAtom = atom<DrawingSaveState>({ status: "idle" });
 
-/** bumped whenever the files on disk change, so the panel re-lists them */
+/** bumped whenever the files on disk change, so the UI re-fetches them */
 export const drawingsRevisionAtom = atom(0);
 
 /** null = not known yet, false = the API isn't reachable (e.g. static build) */
 export const localDrawingsAvailableAtom = atom<boolean | null>(null);
 
-export const getCurrentDrawing = () =>
-  appJotaiStore.get(currentDrawingNameAtom);
+export const rootInfoAtom = atom<RootInfo | null>(null);
+export const workspaceDataAtom = atom<WorkspaceData | null>(null);
+export const localDrawingsErrorAtom = atom<string | null>(null);
 
-const setCurrentDrawing = (name: string | null) => {
-  appJotaiStore.set(currentDrawingNameAtom, name);
-  appJotaiStore.set(drawingSaveStateAtom, { status: "idle" });
-  try {
-    if (name) {
-      localStorage.setItem(CURRENT_DRAWING_STORAGE_KEY, name);
-    } else {
-      localStorage.removeItem(CURRENT_DRAWING_STORAGE_KEY);
+export const activeWorkspaceAtom = atom<string | null>(
+  readStorage(WORKSPACE_STORAGE_KEY),
+);
+
+export type SortOrder = "name" | "created" | "updated";
+export const sortOrderAtom = atom<SortOrder>(
+  (readStorage(SORT_STORAGE_KEY) as SortOrder) || "updated",
+);
+
+export type BrowsePage =
+  | { type: "dashboard" }
+  | { type: "collection"; name: string }
+  | { type: "trash" }
+  | { type: "settings" };
+
+export type SidebarState = {
+  open: boolean;
+  /** editor: the canvas with the collection list; browse: a full page */
+  mode: "editor" | "browse";
+  page: BrowsePage;
+  /** collection listed in the sidebar in editor mode */
+  collection: string | null;
+};
+
+export const sidebarStateAtom = atom<SidebarState>({
+  open: readStorage(SIDEBAR_OPEN_STORAGE_KEY) !== "false",
+  mode: "editor",
+  page: { type: "dashboard" },
+  collection:
+    parseDrawingPath(readStoredCurrentDrawing() || "")?.collection ?? null,
+});
+
+export const getCurrentDrawing = () =>
+  appJotaiStore.get(currentDrawingPathAtom);
+
+export const setSidebarState = (
+  update: Partial<SidebarState> | ((prev: SidebarState) => SidebarState),
+) => {
+  appJotaiStore.set(sidebarStateAtom, (prev) => {
+    const next =
+      typeof update === "function" ? update(prev) : { ...prev, ...update };
+    if (next.open !== prev.open) {
+      writeStorage(SIDEBAR_OPEN_STORAGE_KEY, String(next.open));
     }
-  } catch {
-    // localStorage unavailable/full — the pointer then only lives in memory
+    return next;
+  });
+};
+
+export const setSortOrder = (order: SortOrder) => {
+  appJotaiStore.set(sortOrderAtom, order);
+  writeStorage(SORT_STORAGE_KEY, order);
+};
+
+export const setActiveWorkspace = (workspace: string) => {
+  if (appJotaiStore.get(activeWorkspaceAtom) !== workspace) {
+    appJotaiStore.set(workspaceDataAtom, null);
+  }
+  appJotaiStore.set(activeWorkspaceAtom, workspace);
+  writeStorage(WORKSPACE_STORAGE_KEY, workspace);
+  bumpDrawingsRevision();
+};
+
+const setCurrentDrawing = (path: DrawingPath | null) => {
+  appJotaiStore.set(currentDrawingPathAtom, path);
+  appJotaiStore.set(drawingSaveStateAtom, { status: "idle" });
+  writeStorage(CURRENT_DRAWING_STORAGE_KEY, path);
+  const parsed = path && parseDrawingPath(path);
+  if (parsed) {
+    setSidebarState({ collection: parsed.collection });
   }
 };
 
@@ -94,8 +202,55 @@ export const bumpDrawingsRevision = () => {
 export const syncCurrentDrawingFromStorage = () => {
   const stored = readStoredCurrentDrawing();
   if (stored !== getCurrentDrawing()) {
-    appJotaiStore.set(currentDrawingNameAtom, stored);
+    appJotaiStore.set(currentDrawingPathAtom, stored);
     appJotaiStore.set(drawingSaveStateAtom, { status: "idle" });
+    // show the adopted drawing in the sidebar
+    const parsed = stored && parseDrawingPath(stored);
+    if (parsed) {
+      if (appJotaiStore.get(activeWorkspaceAtom) !== parsed.workspace) {
+        setActiveWorkspace(parsed.workspace);
+      }
+      setSidebarState({ collection: parsed.collection });
+    }
+  }
+};
+
+// -----------------------------------------------------------------------------
+// toasts (rendered by <LocalDrawingsDialogs />, visible over every page)
+// -----------------------------------------------------------------------------
+
+export const localToastAtom = atom<{ id: number; message: string } | null>(
+  null,
+);
+
+let toastTimer: number | null = null;
+export const showLocalToast = (message: string, duration = 4000) => {
+  if (toastTimer) {
+    window.clearTimeout(toastTimer);
+  }
+  appJotaiStore.set(localToastAtom, { id: Date.now(), message });
+  toastTimer = window.setTimeout(
+    () => appJotaiStore.set(localToastAtom, null),
+    duration,
+  );
+};
+
+export const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
+/** runs an action, reporting failures in a toast (cancelled pickers are fine) */
+export const runLocalAction = async <T>(
+  action: () => Promise<T>,
+): Promise<T | undefined> => {
+  try {
+    return await action();
+  } catch (error: any) {
+    if (error?.name !== "AbortError") {
+      showLocalToast(getErrorMessage(error), 6000);
+    }
+    return undefined;
+  } finally {
+    bumpDrawingsRevision();
   }
 };
 
@@ -143,31 +298,261 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return data as T;
 };
 
-const query = (name: string) => `?name=${encodeURIComponent(name)}`;
+const qs = (params: Record<string, string>) =>
+  `?${new URLSearchParams(params).toString()}`;
+
+const post = <T>(path: string, body: unknown) =>
+  request<T>(path, { method: "POST", body: JSON.stringify(body) });
 
 export const LocalDrawingsAPI = {
-  list: () => request<DrawingsListResponse>("/"),
-  read: async (name: string) =>
-    (await request<{ content: string }>(`/drawing${query(name)}`)).content,
-  write: (name: string, content: string) =>
-    request<{ name: string }>(`/drawing${query(name)}`, {
+  info: () => request<RootInfo>("/"),
+  workspace: (workspace: string) =>
+    request<WorkspaceData>(`/workspace${qs({ w: workspace })}`),
+  createWorkspace: async (name: string) =>
+    (await post<{ name: string }>("/workspaces", { name })).name,
+  renameWorkspace: async (from: string, to: string) =>
+    (await post<{ name: string }>("/workspaces/rename", { from, to })).name,
+  setWorkspaceColor: (workspace: string, color: string) =>
+    post("/workspaces/color", { workspace, color }),
+  createCollection: async (workspace: string, name: string) =>
+    (await post<{ name: string }>("/collections", { workspace, name })).name,
+  renameCollection: async (workspace: string, from: string, to: string) =>
+    (
+      await post<{ name: string }>("/collections/rename", {
+        workspace,
+        from,
+        to,
+      })
+    ).name,
+  deleteCollection: (workspace: string, collection: string) =>
+    request(`/collections${qs({ w: workspace, c: collection })}`, {
+      method: "DELETE",
+    }),
+  read: async (path: DrawingPath) =>
+    (await request<{ content: string }>(`/drawing${qs({ p: path })}`)).content,
+  write: (path: DrawingPath, content: string) =>
+    request(`/drawing${qs({ p: path })}`, {
       method: "PUT",
       body: JSON.stringify({ content }),
     }),
-  create: async (name: string, content: string) =>
+  create: async (
+    workspace: string,
+    collection: string,
+    name: string,
+    content: string,
+  ) =>
     (
-      await request<{ name: string }>("/drawing", {
-        method: "POST",
-        body: JSON.stringify({ name, content }),
+      await post<{ path: DrawingPath }>("/drawing", {
+        workspace,
+        collection,
+        name,
+        content,
       })
-    ).name,
-  rename: (from: string, to: string) =>
-    request<{ name: string }>("/rename", {
-      method: "POST",
-      body: JSON.stringify({ from, to }),
+    ).path,
+  rename: async (path: DrawingPath, name: string) =>
+    (await post<{ path: DrawingPath }>("/drawing/rename", { path, name })).path,
+  move: async (path: DrawingPath, collection: string) =>
+    (await post<{ path: DrawingPath }>("/drawing/move", { path, collection }))
+      .path,
+  duplicate: async (path: DrawingPath) =>
+    (await post<{ path: DrawingPath }>("/drawing/duplicate", { path })).path,
+  trash: (path: DrawingPath) =>
+    request(`/drawing${qs({ p: path })}`, { method: "DELETE" }),
+  setPinned: (path: DrawingPath, pinned: boolean) =>
+    post("/drawing/pin", { path, pinned }),
+  thumbnailUrl: (path: DrawingPath, version: number) =>
+    `${LOCAL_DRAWINGS_API_PATH}/thumbnail${qs({
+      p: path,
+      v: String(Math.round(version)),
+    })}`,
+  writeThumbnail: (path: DrawingPath, png: Blob) =>
+    request(`/thumbnail${qs({ p: path })}`, {
+      method: "PUT",
+      body: png,
+      headers: { "Content-Type": "image/png" },
     }),
-  remove: (name: string) =>
-    request<{ name: string }>(`/drawing${query(name)}`, { method: "DELETE" }),
+  listTrash: async (workspace: string) =>
+    (await request<{ items: TrashItem[] }>(`/trash${qs({ w: workspace })}`))
+      .items,
+  restore: async (workspace: string, id: string) =>
+    (await post<{ path: DrawingPath }>("/trash/restore", { workspace, id }))
+      .path,
+  deleteFromTrash: (workspace: string, id: string | null) =>
+    request(`/trash${qs(id ? { w: workspace, id } : { w: workspace })}`, {
+      method: "DELETE",
+    }),
+  reveal: (target: { path: DrawingPath } | { workspace: string }) =>
+    post("/reveal", target),
+};
+
+/** loads the workspace list and the active workspace's drawings */
+export const refreshLocalDrawings = async () => {
+  try {
+    const info = await LocalDrawingsAPI.info();
+    appJotaiStore.set(rootInfoAtom, info);
+    let workspace = appJotaiStore.get(activeWorkspaceAtom);
+    if (!workspace || !info.workspaces.some((ws) => ws.name === workspace)) {
+      workspace =
+        parseDrawingPath(getCurrentDrawing() || "")?.workspace ||
+        info.workspaces[0]?.name ||
+        null;
+      if (workspace && !info.workspaces.some((ws) => ws.name === workspace)) {
+        workspace = info.workspaces[0]?.name || null;
+      }
+      appJotaiStore.set(activeWorkspaceAtom, workspace);
+      writeStorage(WORKSPACE_STORAGE_KEY, workspace);
+    }
+    if (workspace) {
+      const data = await LocalDrawingsAPI.workspace(workspace);
+      // ignore stale responses after a workspace switch
+      if (appJotaiStore.get(activeWorkspaceAtom) === workspace) {
+        appJotaiStore.set(workspaceDataAtom, data);
+        queueMissingThumbnails(data);
+      }
+    }
+    appJotaiStore.set(localDrawingsAvailableAtom, true);
+    appJotaiStore.set(localDrawingsErrorAtom, null);
+  } catch (error) {
+    appJotaiStore.set(localDrawingsAvailableAtom, false);
+    appJotaiStore.set(localDrawingsErrorAtom, getErrorMessage(error));
+  }
+};
+
+// -----------------------------------------------------------------------------
+// sorting & lookup helpers for the UI
+// -----------------------------------------------------------------------------
+
+export const sortDrawings = (drawings: DrawingMeta[], order: SortOrder) =>
+  [...drawings].sort((a, b) => {
+    if (a.pinned !== b.pinned) {
+      return a.pinned ? -1 : 1;
+    }
+    switch (order) {
+      case "name":
+        return a.name.localeCompare(b.name, undefined, { numeric: true });
+      case "created":
+        return b.createdAt - a.createdAt;
+      default:
+        return b.modifiedAt - a.modifiedAt;
+    }
+  });
+
+export const getAllDrawings = (data: WorkspaceData | null) =>
+  data ? data.collections.flatMap((collection) => collection.drawings) : [];
+
+/** where new drawings go: the collection in view, else the first one */
+export const getTargetCollection = () => {
+  const data = appJotaiStore.get(workspaceDataAtom);
+  if (!data) {
+    return null;
+  }
+  const sidebar = appJotaiStore.get(sidebarStateAtom);
+  const candidates = [
+    sidebar.mode === "browse" && sidebar.page.type === "collection"
+      ? sidebar.page.name
+      : null,
+    sidebar.collection,
+    DEFAULT_COLLECTION_NAME,
+  ];
+  const collection =
+    candidates.find(
+      (name) => name && data.collections.some((col) => col.name === name),
+    ) || data.collections[0]?.name;
+  return collection ? { workspace: data.name, collection } : null;
+};
+
+const requireTargetCollection = () => {
+  const target = getTargetCollection();
+  if (!target) {
+    throw new Error("No workspace is loaded yet.");
+  }
+  return target;
+};
+
+// -----------------------------------------------------------------------------
+// thumbnails
+// -----------------------------------------------------------------------------
+
+const THUMBNAIL_WIDTH = 480;
+const THUMBNAIL_HEIGHT = 360;
+
+const thumbnailQueue = new Map<DrawingPath, string | null>();
+const thumbnailTimers = new Map<DrawingPath, number>();
+const thumbnailAttempted = new Set<DrawingPath>();
+let thumbnailWorker: Promise<void> | null = null;
+
+const renderThumbnail = async (path: DrawingPath, content: string | null) => {
+  const data = await parseDrawing(
+    content ?? (await LocalDrawingsAPI.read(path)),
+    null,
+    null,
+  );
+  const elements = getNonDeletedElements(data.elements);
+  if (!elements.length) {
+    return;
+  }
+  const png = await exportScene({
+    type: "png",
+    data: { elements, appState: data.appState, files: data.files },
+    config: {
+      theme: "dark",
+      canvasBackgroundColor: false,
+      width: THUMBNAIL_WIDTH,
+      height: THUMBNAIL_HEIGHT,
+      fit: "contain",
+      padding: 24,
+    },
+  });
+  await LocalDrawingsAPI.writeThumbnail(path, png);
+  bumpDrawingsRevision();
+};
+
+const runThumbnailWorker = () => {
+  thumbnailWorker =
+    thumbnailWorker ||
+    (async () => {
+      while (thumbnailQueue.size) {
+        const [path, content] = thumbnailQueue.entries().next().value!;
+        thumbnailQueue.delete(path);
+        try {
+          await renderThumbnail(path, content);
+        } catch (error) {
+          console.warn(`Couldn't render the thumbnail of "${path}"`, error);
+        }
+      }
+    })().finally(() => {
+      thumbnailWorker = null;
+    });
+};
+
+/** (re)renders a drawing's thumbnail, debounced per drawing */
+export const scheduleThumbnail = (
+  path: DrawingPath,
+  content: string | null = null,
+  delay = THUMBNAIL_DELAY,
+) => {
+  thumbnailAttempted.add(path);
+  window.clearTimeout(thumbnailTimers.get(path));
+  thumbnailTimers.set(
+    path,
+    window.setTimeout(() => {
+      thumbnailTimers.delete(path);
+      thumbnailQueue.set(path, content);
+      runThumbnailWorker();
+    }, delay),
+  );
+};
+
+/** renders thumbnails that are missing or older than their drawing */
+const queueMissingThumbnails = (data: WorkspaceData) => {
+  for (const drawing of getAllDrawings(data)) {
+    const isStale =
+      drawing.thumbnailVersion === null ||
+      drawing.thumbnailVersion < drawing.modifiedAt - 10_000;
+    if (isStale && !thumbnailAttempted.has(drawing.path)) {
+      scheduleThumbnail(drawing.path, null, 0);
+    }
+  }
 };
 
 // -----------------------------------------------------------------------------
@@ -180,11 +565,8 @@ const serializeScene = (
   files: BinaryFiles,
 ) => serializeAsJSON(getNonDeletedElements(elements), appState, files, "local");
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
-
 type PendingSave = {
-  name: string;
+  path: DrawingPath;
   elements: readonly ExcalidrawElement[];
   appState: AppState;
   files: BinaryFiles;
@@ -192,18 +574,18 @@ type PendingSave = {
 
 class DrawingAutosaver {
   /** last content written (or loaded) per drawing, to skip no-op writes */
-  private lastSaved = new Map<string, string>();
+  private lastSaved = new Map<DrawingPath, string>();
   /** latest scene waiting for the debounce to elapse */
   private pending: PendingSave | null = null;
   /** content whose write failed, retried on the next flush */
-  private failed: { name: string; content: string } | null = null;
+  private failed: { path: DrawingPath; content: string } | null = null;
   private timer: number | null = null;
   private queue: Promise<void> = Promise.resolve();
   private inFlight = 0;
 
   schedule(save: PendingSave) {
     this.pending = save;
-    if (this.failed?.name === save.name) {
+    if (this.failed?.path === save.path) {
       // superseded by newer content
       this.failed = null;
     }
@@ -220,9 +602,9 @@ class DrawingAutosaver {
     }
     // onChange also fires for UI-only changes (selection, scroll, …) which
     // don't change the file, so compare the actual content
-    const { name, elements, appState, files } = this.pending;
+    const { path, elements, appState, files } = this.pending;
     return (
-      this.lastSaved.get(name) !== serializeScene(elements, appState, files)
+      this.lastSaved.get(path) !== serializeScene(elements, appState, files)
     );
   }
 
@@ -234,59 +616,63 @@ class DrawingAutosaver {
 
     const write = save
       ? {
-          name: save.name,
+          path: save.path,
           content: serializeScene(save.elements, save.appState, save.files),
         }
       : this.failed;
     this.failed = null;
 
-    if (write && this.lastSaved.get(write.name) !== write.content) {
-      this.enqueueWrite(write.name, write.content);
+    if (write && this.lastSaved.get(write.path) !== write.content) {
+      this.enqueueWrite(write.path, write.content);
     }
     await this.queue;
     return !this.failed;
   }
 
-  setBaseline(name: string, content: string) {
-    this.lastSaved.set(name, content);
+  setBaseline(path: DrawingPath, content: string) {
+    this.lastSaved.set(path, content);
   }
 
-  rename(from: string, to: string) {
-    const content = this.lastSaved.get(from);
-    this.lastSaved.delete(from);
-    if (content !== undefined) {
-      this.lastSaved.set(to, content);
+  /** follows a rename/move of drawings whose path starts with `from` */
+  renamePrefix(from: string, to: string) {
+    const rename = (path: DrawingPath) =>
+      path === from || path.startsWith(`${from}/`)
+        ? `${to}${path.slice(from.length)}`
+        : path;
+    this.lastSaved = new Map(
+      [...this.lastSaved].map(([path, content]) => [rename(path), content]),
+    );
+    if (this.pending) {
+      this.pending = { ...this.pending, path: rename(this.pending.path) };
     }
-    if (this.pending?.name === from) {
-      this.pending = { ...this.pending, name: to };
-    }
-    if (this.failed?.name === from) {
-      this.failed = { ...this.failed, name: to };
+    if (this.failed) {
+      this.failed = { ...this.failed, path: rename(this.failed.path) };
     }
   }
 
   /** drops anything not yet written for this drawing */
-  forget(name: string) {
-    this.lastSaved.delete(name);
-    if (this.pending?.name === name) {
+  forget(path: DrawingPath) {
+    this.lastSaved.delete(path);
+    if (this.pending?.path === path) {
       this.pending = null;
       this.clearTimer();
     }
-    if (this.failed?.name === name) {
+    if (this.failed?.path === path) {
       this.failed = null;
     }
   }
 
-  private enqueueWrite(name: string, content: string) {
+  private enqueueWrite(path: DrawingPath, content: string) {
     this.inFlight++;
     this.queue = this.queue.then(async () => {
       appJotaiStore.set(drawingSaveStateAtom, { status: "saving" });
       try {
-        await LocalDrawingsAPI.write(name, content);
-        this.lastSaved.set(name, content);
-        if (getCurrentDrawing() === name) {
+        await LocalDrawingsAPI.write(path, content);
+        this.lastSaved.set(path, content);
+        if (getCurrentDrawing() === path) {
           appJotaiStore.set(drawingSaveStateAtom, { status: "saved" });
         }
+        scheduleThumbnail(path, content);
         bumpDrawingsRevision();
       } catch (error) {
         appJotaiStore.set(drawingSaveStateAtom, {
@@ -294,7 +680,7 @@ class DrawingAutosaver {
           error: getErrorMessage(error),
         });
         if (!this.pending) {
-          this.failed = { name, content };
+          this.failed = { path, content };
           this.setTimer(AUTOSAVE_RETRY_DELAY);
         }
       } finally {
@@ -330,20 +716,20 @@ export const autosaveCurrentDrawing = (
   appState: AppState,
   files: BinaryFiles,
 ) => {
-  const name = getCurrentDrawing();
-  if (!name || isSwitchingScene) {
+  const path = getCurrentDrawing();
+  if (!path || isSwitchingScene) {
     return;
   }
-  autosaver.schedule({ name, elements, appState, files });
+  autosaver.schedule({ path, elements, appState, files });
 };
 
 export const flushDrawingAutosave = () => autosaver.flush();
 
 export const hasUnsavedDrawingChanges = () => autosaver.hasUnsavedChanges();
 
-const setBaselineFromScene = (api: ExcalidrawImperativeAPI, name: string) => {
+const setBaselineFromScene = (api: ExcalidrawImperativeAPI, path: string) => {
   autosaver.setBaseline(
-    name,
+    path,
     serializeScene(
       api.getSceneElementsIncludingDeleted(),
       api.getAppState(),
@@ -360,8 +746,26 @@ const flushOrThrow = async () => {
   }
 };
 
+/** keeps the open drawing bound to its file after a rename/move */
+const followPathChange = (
+  api: ExcalidrawImperativeAPI | null,
+  from: string,
+  to: string,
+) => {
+  autosaver.renamePrefix(from, to);
+  const current = getCurrentDrawing();
+  if (current && (current === from || current.startsWith(`${from}/`))) {
+    const next = `${to}${current.slice(from.length)}`;
+    setCurrentDrawing(next);
+    const name = parseDrawingPath(next)?.name;
+    if (api && name) {
+      api.updateScene({ appState: { name } });
+    }
+  }
+};
+
 // -----------------------------------------------------------------------------
-// actions
+// drawing actions
 // -----------------------------------------------------------------------------
 
 const parseDrawing = (
@@ -380,13 +784,13 @@ const parseDrawing = (
  * `localAppState` (what the browser remembered), everything else from the file.
  */
 export const loadDrawingForInitialScene = async (
-  name: string,
+  path: DrawingPath,
   localAppState: Partial<AppState>,
 ) => {
-  const content = await LocalDrawingsAPI.read(name);
+  const content = await LocalDrawingsAPI.read(path);
   const data = await parseDrawing(content, null, null);
   autosaver.setBaseline(
-    name,
+    path,
     serializeScene(data.elements, data.appState, data.files),
   );
   return {
@@ -397,7 +801,7 @@ export const loadDrawingForInitialScene = async (
     appState: {
       ...localAppState,
       ...cleanAppStateForExport(data.appState),
-      name,
+      name: parseDrawingPath(path)?.name,
     },
     files: data.files,
   };
@@ -405,10 +809,14 @@ export const loadDrawingForInitialScene = async (
 
 export const openDrawing = async (
   api: ExcalidrawImperativeAPI,
-  name: string,
+  path: DrawingPath,
 ) => {
+  setSidebarState({ mode: "editor" });
+  if (path === getCurrentDrawing()) {
+    return;
+  }
   await flushOrThrow();
-  const content = await LocalDrawingsAPI.read(name);
+  const content = await LocalDrawingsAPI.read(path);
   const data = await parseDrawing(
     content,
     api.getAppState(),
@@ -417,12 +825,12 @@ export const openDrawing = async (
 
   isSwitchingScene = true;
   try {
-    setCurrentDrawing(name);
+    setCurrentDrawing(path);
     api.updateScene({
       elements: data.elements,
       appState: {
         ...data.appState,
-        name,
+        name: parseDrawingPath(path)!.name,
         selectedElementIds: {},
         selectedGroupIds: {},
         editingGroupId: null,
@@ -431,7 +839,7 @@ export const openDrawing = async (
     });
     api.addFiles(Object.values(data.files));
     api.history.clear();
-    setBaselineFromScene(api, name);
+    setBaselineFromScene(api, path);
   } finally {
     isSwitchingScene = false;
   }
@@ -446,76 +854,111 @@ export const openDrawing = async (
   }
 };
 
-/** creates an empty drawing and opens it */
-export const createDrawing = async (api: ExcalidrawImperativeAPI) => {
+/** creates an empty drawing in the given collection and opens it */
+export const createDrawing = async (
+  api: ExcalidrawImperativeAPI,
+  target = requireTargetCollection(),
+) => {
   await flushOrThrow();
-  const name = await LocalDrawingsAPI.create(
+  const path = await LocalDrawingsAPI.create(
+    target.workspace,
+    target.collection,
     DEFAULT_DRAWING_NAME,
     serializeAsJSON([], getDefaultAppState(), {}, "local"),
   );
-  bumpDrawingsRevision();
-  await openDrawing(api, name);
-  return name;
+  await openDrawing(api, path);
+  return path;
 };
 
 /** saves the current (not yet saved) canvas as a new drawing */
-export const saveCanvasAsDrawing = async (api: ExcalidrawImperativeAPI) => {
+export const saveCanvasAsDrawing = async (
+  api: ExcalidrawImperativeAPI,
+  target = requireTargetCollection(),
+) => {
   await flushOrThrow();
   const content = serializeScene(
     api.getSceneElementsIncludingDeleted(),
     api.getAppState(),
     api.getFiles(),
   );
-  const name = await LocalDrawingsAPI.create(
-    sanitizeDrawingName(api.getAppState().name || ""),
+  const path = await LocalDrawingsAPI.create(
+    target.workspace,
+    target.collection,
+    sanitizeName(api.getAppState().name || ""),
     content,
   );
-  autosaver.setBaseline(name, content);
-  setCurrentDrawing(name);
-  api.updateScene({ appState: { name } });
-  bumpDrawingsRevision();
-  return name;
+  autosaver.setBaseline(path, content);
+  setCurrentDrawing(path);
+  api.updateScene({ appState: { name: parseDrawingPath(path)!.name } });
+  scheduleThumbnail(path, content, 0);
+  return path;
 };
 
-/** picks a file from the disk, copies it into the drawings folder, opens it */
-export const importDrawing = async (api: ExcalidrawImperativeAPI) => {
-  const file = await fileOpen({
-    description: "Excalidraw drawing",
+/** picks files from the disk and copies them into a collection */
+export const importDrawings = async (
+  api: ExcalidrawImperativeAPI,
+  target = requireTargetCollection(),
+  { multiple = true } = {},
+) => {
+  const picked = await fileOpen({
+    description: "Excalidraw scene",
     extensions: ["json", "excalidraw", "png", "svg"],
+    multiple: true,
   });
-  const data = await loadFromBlob(file, null, null);
-  await flushOrThrow();
-  const name = await LocalDrawingsAPI.create(
-    sanitizeDrawingName(file.name.replace(/\.(excalidraw|json|png|svg)$/i, "")),
-    serializeScene(data.elements, data.appState, data.files),
-  );
-  bumpDrawingsRevision();
-  await openDrawing(api, name);
-  return name;
+  const files = multiple ? picked : picked.slice(0, 1);
+  const paths: DrawingPath[] = [];
+  for (const file of files) {
+    const data = await loadFromBlob(file, null, null);
+    const content = serializeScene(data.elements, data.appState, data.files);
+    const path = await LocalDrawingsAPI.create(
+      target.workspace,
+      target.collection,
+      sanitizeName(file.name.replace(/\.(excalidraw|json|png|svg)$/i, "")),
+      content,
+    );
+    scheduleThumbnail(path, content, 0);
+    paths.push(path);
+  }
+  if (paths.length) {
+    await openDrawing(api, paths[0]);
+  }
+  return paths;
 };
 
 export const renameDrawing = async (
-  api: ExcalidrawImperativeAPI,
-  from: string,
-  to: string,
+  api: ExcalidrawImperativeAPI | null,
+  path: DrawingPath,
+  newName: string,
 ) => {
   await flushOrThrow();
-  await LocalDrawingsAPI.rename(from, to);
-  autosaver.rename(from, to);
-  if (getCurrentDrawing() === from) {
-    setCurrentDrawing(to);
-    api.updateScene({ appState: { name: to } });
-  }
-  bumpDrawingsRevision();
+  const newPath = await LocalDrawingsAPI.rename(path, newName);
+  followPathChange(api, path, newPath);
+  return newPath;
+};
+
+export const moveDrawing = async (
+  api: ExcalidrawImperativeAPI | null,
+  path: DrawingPath,
+  collection: string,
+) => {
+  await flushOrThrow();
+  const newPath = await LocalDrawingsAPI.move(path, collection);
+  followPathChange(api, path, newPath);
+  return newPath;
+};
+
+export const duplicateDrawing = async (path: DrawingPath) => {
+  await flushOrThrow();
+  return LocalDrawingsAPI.duplicate(path);
 };
 
 /** moves the drawing to the trash; if it's open, the canvas gets cleared */
-export const deleteDrawing = async (
-  api: ExcalidrawImperativeAPI,
-  name: string,
+export const trashDrawing = async (
+  api: ExcalidrawImperativeAPI | null,
+  path: DrawingPath,
 ) => {
-  const wasCurrent = getCurrentDrawing() === name;
-  autosaver.forget(name);
+  const wasCurrent = getCurrentDrawing() === path;
+  autosaver.forget(path);
   if (wasCurrent) {
     // stop saving into the file we're about to delete
     setCurrentDrawing(null);
@@ -523,18 +966,121 @@ export const deleteDrawing = async (
   // wait for in-flight writes, so they don't recreate the file
   await autosaver.flush();
   try {
-    await LocalDrawingsAPI.remove(name);
+    await LocalDrawingsAPI.trash(path);
   } catch (error) {
     if (wasCurrent) {
-      setCurrentDrawing(name);
+      setCurrentDrawing(path);
     }
     throw error;
   }
-  if (wasCurrent) {
+  if (wasCurrent && api) {
     api.resetScene();
     api.history.clear();
   }
-  bumpDrawingsRevision();
+};
+
+export const exportDrawing = async (
+  path: DrawingPath,
+  type: "png" | "svg" | "excalidraw",
+) => {
+  const name = parseDrawingPath(path)!.name;
+  const content = await LocalDrawingsAPI.read(path);
+  let blob: Blob;
+  if (type === "excalidraw") {
+    blob = new Blob([content], { type: MIME_TYPES.excalidraw });
+  } else {
+    const data = await parseDrawing(content, null, null);
+    const exportData = {
+      elements: getNonDeletedElements(data.elements),
+      appState: data.appState,
+      files: data.files,
+    };
+    if (type === "png") {
+      blob = await exportScene({
+        type: "png",
+        data: exportData,
+        config: { scale: 2 },
+      });
+    } else {
+      const svg = await exportScene({ type: "svg", data: exportData });
+      blob = new Blob([svg.outerHTML], { type: MIME_TYPES.svg });
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${name}.${type}`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+};
+
+// -----------------------------------------------------------------------------
+// workspace & collection actions
+// -----------------------------------------------------------------------------
+
+export const createWorkspace = async (name: string) => {
+  const created = await LocalDrawingsAPI.createWorkspace(name);
+  setActiveWorkspace(created);
+  setSidebarState({
+    mode: "browse",
+    page: { type: "collection", name: DEFAULT_COLLECTION_NAME },
+  });
+  return created;
+};
+
+export const renameWorkspace = async (
+  api: ExcalidrawImperativeAPI | null,
+  from: string,
+  to: string,
+) => {
+  await flushOrThrow();
+  const renamed = await LocalDrawingsAPI.renameWorkspace(from, to);
+  followPathChange(api, from, renamed);
+  if (appJotaiStore.get(activeWorkspaceAtom) === from) {
+    setActiveWorkspace(renamed);
+  }
+  return renamed;
+};
+
+export const createCollection = async (workspace: string, name: string) => {
+  const created = await LocalDrawingsAPI.createCollection(workspace, name);
+  setSidebarState({
+    mode: "browse",
+    page: { type: "collection", name: created },
+  });
+  return created;
+};
+
+export const renameCollection = async (
+  api: ExcalidrawImperativeAPI | null,
+  workspace: string,
+  from: string,
+  to: string,
+) => {
+  await flushOrThrow();
+  const renamed = await LocalDrawingsAPI.renameCollection(workspace, from, to);
+  followPathChange(api, `${workspace}/${from}`, `${workspace}/${renamed}`);
+  setSidebarState((prev) => ({
+    ...prev,
+    collection: prev.collection === from ? renamed : prev.collection,
+    page:
+      prev.page.type === "collection" && prev.page.name === from
+        ? { type: "collection", name: renamed }
+        : prev.page,
+  }));
+  return renamed;
+};
+
+export const deleteCollection = async (workspace: string, name: string) => {
+  await LocalDrawingsAPI.deleteCollection(workspace, name);
+  setSidebarState((prev) => ({
+    ...prev,
+    collection: prev.collection === name ? null : prev.collection,
+    page:
+      prev.page.type === "collection" && prev.page.name === name
+        ? { type: "dashboard" }
+        : prev.page,
+  }));
 };
 
 /**
@@ -552,9 +1098,15 @@ export const detachCurrentDrawing = async () => {
 // eslint-disable-next-line no-control-regex
 const INVALID_NAME_CHARS = /[\\/:*?"<>|\u0000-\u001f\u007f]/g;
 
-export const sanitizeDrawingName = (name: string) =>
+export const sanitizeName = (name: string, fallback = DEFAULT_DRAWING_NAME) =>
   name
     .replace(INVALID_NAME_CHARS, "-")
     .replace(/^[.\s]+/, "")
     .trim()
-    .slice(0, MAX_DRAWING_NAME_LENGTH) || DEFAULT_DRAWING_NAME;
+    .slice(0, MAX_NAME_LENGTH) || fallback;
+
+export const isValidName = (name: string) =>
+  !!name.trim() && sanitizeName(name.trim(), "") === name.trim();
+
+export const INVALID_NAME_MESSAGE =
+  "Names can't start with a dot or contain any of: \\ / : * ? \" < > |";

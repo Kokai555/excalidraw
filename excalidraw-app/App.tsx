@@ -85,6 +85,7 @@ import {
   useAtom,
   useAtomValue,
   useAtomWithInitialValue,
+  useSetAtom,
   appJotaiStore,
 } from "./app-jotai";
 import {
@@ -148,18 +149,28 @@ import "./index.scss";
 
 import { ExcalidrawPlusPromoBanner } from "./components/ExcalidrawPlusPromoBanner";
 import { AppSidebar } from "./components/AppSidebar";
-import { DrawingsPanel } from "./localDrawings/DrawingsPanel";
+import { LocalDrawingsBrowsePage } from "./localDrawings/ui/BrowsePage";
+import {
+  LocalDrawingsDialogs,
+  quickSearchOpenAtom,
+} from "./localDrawings/ui/Dialogs";
+import {
+  LocalDrawingsSidebar,
+  LocalDrawingsTopLeftUI,
+} from "./localDrawings/ui/Sidebar";
 import {
   autosaveCurrentDrawing,
   detachCurrentDrawing,
   flushDrawingAutosave,
   getCurrentDrawing,
   hasUnsavedDrawingChanges,
-  importDrawing,
+  importDrawings,
   isDrawingNotFoundError,
   loadDrawingForInitialScene,
   localDrawingsAvailableAtom,
+  runLocalAction,
   saveCanvasAsDrawing,
+  showLocalToast,
   syncCurrentDrawingFromStorage,
 } from "./localDrawings/localDrawings";
 
@@ -896,28 +907,19 @@ const ExcalidrawWrapper = () => {
   const localDrawingsAvailable =
     useAtomValue(localDrawingsAvailableAtom) === true && !isCollabDisabled;
 
+  const setQuickSearchOpen = useSetAtom(quickSearchOpenAtom);
+
   const runDrawingAction = useCallback(
-    async (action: (api: ExcalidrawImperativeAPI) => Promise<unknown>) => {
-      if (!excalidrawAPI) {
-        return;
-      }
-      try {
-        await action(excalidrawAPI);
-      } catch (error: any) {
-        if (error?.name !== "AbortError") {
-          excalidrawAPI.setToast({
-            message: error?.message || String(error),
-            closable: true,
-            duration: 6000,
-          });
-        }
-      }
-    },
+    (action: (api: ExcalidrawImperativeAPI) => Promise<unknown>) =>
+      excalidrawAPI && runLocalAction(() => action(excalidrawAPI)),
     [excalidrawAPI],
   );
 
   const onImportDrawing = useCallback(
-    () => runDrawingAction(importDrawing),
+    () =>
+      runDrawingAction((api) =>
+        importDrawings(api, undefined, { multiple: false }),
+      ),
     [runDrawingAction],
   );
 
@@ -926,17 +928,22 @@ const ExcalidrawWrapper = () => {
       return;
     }
     // with local drawings, Ctrl+O imports a file as a new drawing (instead of
-    // replacing the open one) and Ctrl+S saves into the drawings folder
+    // replacing the open one), Ctrl+S saves into the drawings folder and
+    // Ctrl+P opens the quick search
     const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        !(event.ctrlKey || event.metaKey) ||
-        event.shiftKey ||
-        event.altKey ||
-        isCollaborating
-      ) {
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) {
         return;
       }
       const key = event.key.toLowerCase();
+      if (key === "p") {
+        event.preventDefault();
+        event.stopPropagation();
+        setQuickSearchOpen(true);
+        return;
+      }
+      if (isCollaborating) {
+        return;
+      }
       if (key === "o") {
         event.preventDefault();
         event.stopPropagation();
@@ -947,11 +954,11 @@ const ExcalidrawWrapper = () => {
         runDrawingAction(async (api) => {
           if (getCurrentDrawing()) {
             if (await flushDrawingAutosave()) {
-              api.setToast({ message: "Saved", duration: 1500 });
+              showLocalToast("Saved", 1500);
             }
           } else {
-            const name = await saveCanvasAsDrawing(api);
-            api.setToast({ message: `Saved as "${name}"`, duration: 2500 });
+            const path = await saveCanvasAsDrawing(api);
+            showLocalToast(`Saved as "${path.split("/")[2]}"`, 2500);
           }
         });
       }
@@ -965,6 +972,7 @@ const ExcalidrawWrapper = () => {
     isCollaborating,
     onImportDrawing,
     runDrawingAction,
+    setQuickSearchOpen,
   ]);
 
   const onCollabDialogOpen = useCallback(
@@ -1088,9 +1096,8 @@ const ExcalidrawWrapper = () => {
       })}
     >
       {!isCollabDisabled && (
-        <DrawingsPanel
-          excalidrawAPI={excalidrawAPI}
-          theme={editorTheme}
+        <LocalDrawingsSidebar
+          api={excalidrawAPI}
           isCollaborating={isCollaborating}
         />
       )}
@@ -1145,6 +1152,9 @@ const ExcalidrawWrapper = () => {
           autoFocus={true}
           theme={editorTheme}
           onThemeChange={setAppTheme}
+          renderTopLeftUI={() =>
+            localDrawingsAvailable ? <LocalDrawingsTopLeftUI /> : null
+          }
           renderTopRightUI={(isMobile) => {
             if (isMobile || !collabAPI || !isCollabAvailable) {
               return null;
@@ -1470,7 +1480,9 @@ const ExcalidrawWrapper = () => {
             />
           )}
         </Excalidraw>
+        {!isCollabDisabled && <LocalDrawingsBrowsePage api={excalidrawAPI} />}
       </div>
+      {!isCollabDisabled && <LocalDrawingsDialogs api={excalidrawAPI} />}
     </div>
   );
 };
