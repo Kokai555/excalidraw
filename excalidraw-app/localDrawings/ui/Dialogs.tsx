@@ -219,7 +219,10 @@ const ConfirmDialog = ({
 // -----------------------------------------------------------------------------
 
 const normalize = (value: string) =>
-  value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 
 const QuickSearch = ({
   api,
