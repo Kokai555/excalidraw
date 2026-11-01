@@ -1,4 +1,5 @@
-import { loginIcon } from "@excalidraw/excalidraw/components/icons";
+import { getShortcutFromShortcutName } from "@excalidraw/excalidraw/actions/shortcuts";
+import { LoadIcon, loginIcon } from "@excalidraw/excalidraw/components/icons";
 import { POINTER_EVENTS } from "@excalidraw/common";
 import { useI18n } from "@excalidraw/excalidraw/i18n";
 import { WelcomeScreen } from "@excalidraw/excalidraw/index";
@@ -7,6 +8,8 @@ import React from "react";
 import { isExcalidrawPlusSignedUser } from "../app_constants";
 
 export const AppWelcomeScreen: React.FC<{
+  /** set when local drawings are available: opens a file as a new drawing */
+  onImportDrawing?: () => void;
   onCollabDialogOpen: () => any;
   isCollabEnabled: boolean;
 }> = React.memo((props) => {
@@ -57,7 +60,17 @@ export const AppWelcomeScreen: React.FC<{
           {headingContent}
         </WelcomeScreen.Center.Heading>
         <WelcomeScreen.Center.Menu>
-          <WelcomeScreen.Center.MenuItemLoadScene />
+          {props.onImportDrawing ? (
+            <WelcomeScreen.Center.MenuItem
+              onSelect={() => props.onImportDrawing?.()}
+              shortcut={getShortcutFromShortcutName("loadScene")}
+              icon={LoadIcon}
+            >
+              {t("buttons.load")}
+            </WelcomeScreen.Center.MenuItem>
+          ) : (
+            <WelcomeScreen.Center.MenuItemLoadScene />
+          )}
           <WelcomeScreen.Center.MenuItemHelp />
           {props.isCollabEnabled && (
             <WelcomeScreen.Center.MenuItemLiveCollaborationTrigger

@@ -2,7 +2,9 @@ import {
   loginIcon,
   ExcalLogo,
   eyeIcon,
+  LoadIcon,
 } from "@excalidraw/excalidraw/components/icons";
+import { getShortcutFromShortcutName } from "@excalidraw/excalidraw/actions/shortcuts";
 import { useI18n } from "@excalidraw/excalidraw/i18n";
 import { MainMenu } from "@excalidraw/excalidraw/index";
 import React from "react";
@@ -17,6 +19,8 @@ import { isExcalidrawPlusSignedUser } from "../app_constants";
 import { saveDebugState } from "./DebugCanvas";
 
 export const AppMainMenu: React.FC<{
+  /** set when local drawings are available: opens a file as a new drawing */
+  onImportDrawing?: () => void;
   onCollabDialogOpen: () => any;
   isCollaborating: boolean;
   isCollabEnabled: boolean;
@@ -26,7 +30,17 @@ export const AppMainMenu: React.FC<{
   const { t } = useI18n();
   return (
     <MainMenu>
-      <MainMenu.DefaultItems.LoadScene />
+      {props.onImportDrawing ? (
+        <MainMenu.Item
+          icon={LoadIcon}
+          onSelect={() => props.onImportDrawing?.()}
+          shortcut={getShortcutFromShortcutName("loadScene")}
+        >
+          Megnyitás új rajzként…
+        </MainMenu.Item>
+      ) : (
+        <MainMenu.DefaultItems.LoadScene />
+      )}
       <MainMenu.DefaultItems.SaveToActiveFile />
       <MainMenu.DefaultItems.Export />
       <MainMenu.DefaultItems.SaveAsImage />
