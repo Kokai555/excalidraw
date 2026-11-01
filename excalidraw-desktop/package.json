@@ -1,0 +1,67 @@
+{
+  "name": "excalidraw-desktop",
+  "productName": "Excalidraw",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Excalidraw for macOS with drawings stored in a local folder",
+  "license": "MIT",
+  "author": "Kokai555",
+  "main": "dist/main.js",
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "build:main": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=cjs --external:electron --outfile=dist/main.js",
+    "build": "yarn build:web && yarn build:main",
+    "start": "yarn build:main && electron .",
+    "dist": "yarn build && electron-builder --mac",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@types/node": "24.9.1",
+    "electron": "45.2.1",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  },
+  "build": {
+    "appId": "com.kokai555.excalidraw",
+    "productName": "Excalidraw",
+    "copyright": "Copyright © Excalidraw contributors",
+    "directories": {
+      "output": "release",
+      "buildResources": "resources"
+    },
+    "files": [
+      "package.json",
+      "dist/**/*",
+      "web/**/*",
+      "!web/**/*.map"
+    ],
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "icon": "resources/icon.png",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "Excalidraw"
+    },
+    "fileAssociations": [
+      {
+        "ext": "excalidraw",
+        "name": "Excalidraw drawing",
+        "description": "Excalidraw drawing",
+        "mimeType": "application/vnd.excalidraw+json",
+        "role": "Editor",
+        "rank": "Owner"
+      }
+    ]
+  }
+}

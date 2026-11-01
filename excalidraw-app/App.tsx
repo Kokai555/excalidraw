@@ -173,6 +173,7 @@ import {
   showLocalToast,
   syncCurrentDrawingFromStorage,
 } from "./localDrawings/localDrawings";
+import { setDesktopBridgeAPI } from "./localDrawings/desktop";
 
 import type { CollabAPI } from "./collab/Collab";
 
@@ -1108,6 +1109,7 @@ const ExcalidrawWrapper = () => {
           onChange={onChange}
           onExport={onExport}
           initialData={initialStatePromiseRef.current.promise}
+          onInitialize={setDesktopBridgeAPI}
           isCollaborating={isCollaborating}
           onPointerUpdate={collabAPI?.onPointerUpdate}
           UIOptions={{

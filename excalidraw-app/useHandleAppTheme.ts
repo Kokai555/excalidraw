@@ -14,7 +14,9 @@ export const useHandleAppTheme = () => {
       (localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_THEME) as
         | Theme
         | "system"
-        | null) || THEME.LIGHT
+        | null) ||
+      // the desktop app's window chrome is dark (see excalidraw-desktop)
+      (import.meta.env.VITE_APP_DESKTOP === "true" ? THEME.DARK : THEME.LIGHT)
     );
   });
   const [editorTheme, setEditorTheme] = useState<Theme>(THEME.LIGHT);

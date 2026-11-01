@@ -905,7 +905,15 @@ export const importDrawings = async (
     extensions: ["json", "excalidraw", "png", "svg"],
     multiple: true,
   });
-  const files = multiple ? picked : picked.slice(0, 1);
+  return importFiles(api, multiple ? picked : picked.slice(0, 1), target);
+};
+
+/** creates a drawing from each file and opens the first one */
+const importFiles = async (
+  api: ExcalidrawImperativeAPI,
+  files: readonly File[],
+  target: { workspace: string; collection: string },
+) => {
   const paths: DrawingPath[] = [];
   for (const file of files) {
     const data = await loadFromBlob(file, null, null);
@@ -923,6 +931,31 @@ export const importDrawings = async (
     await openDrawing(api, paths[0]);
   }
   return paths;
+};
+
+/**
+ * Opens a file handed over by the OS (desktop app, e.g. a double click in
+ * Finder): drawings inside the drawings folder open in place, other files get
+ * imported as new drawings.
+ */
+export const openExternalFile = async (
+  api: ExcalidrawImperativeAPI,
+  file: { name: string; content: string; drawingPath: DrawingPath | null },
+) => {
+  await refreshLocalDrawings();
+  const parsed = file.drawingPath && parseDrawingPath(file.drawingPath);
+  if (parsed) {
+    if (appJotaiStore.get(activeWorkspaceAtom) !== parsed.workspace) {
+      setActiveWorkspace(parsed.workspace);
+    }
+    await openDrawing(api, file.drawingPath!);
+    return [file.drawingPath!];
+  }
+  return importFiles(
+    api,
+    [new File([file.content], file.name, { type: "application/json" })],
+    requireTargetCollection(),
+  );
 };
 
 export const renameDrawing = async (
