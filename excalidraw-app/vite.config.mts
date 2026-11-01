@@ -10,6 +10,7 @@ import Sitemap from "vite-plugin-sitemap";
 import { woff2BrowserPlugin } from "../scripts/woff2/woff2-vite-plugins";
 
 import { MERMAID_CHUNKS_LIST_NAME } from "./data/cacheMermaidChunks";
+import { localDrawingsPlugin } from "./localDrawings/vitePlugin";
 
 import type { Plugin, Rollup } from "vite";
 
@@ -271,6 +272,11 @@ export default defineConfig(({ mode }) => {
       assetsInlineLimit: 0,
     },
     plugins: [
+      // stores drawings as .excalidraw files in a local folder
+      // (default: ~/Documents/Excalidraw, override with EXCALIDRAW_DRAWINGS_DIR)
+      localDrawingsPlugin({
+        dir: loadEnv(mode, `../`, "EXCALIDRAW_").EXCALIDRAW_DRAWINGS_DIR,
+      }),
       Sitemap({
         hostname: "https://excalidraw.com",
         outDir: "build",
