@@ -34,9 +34,37 @@ export const importUsernameFromLocalStorage = (): string | null => {
   return null;
 };
 
+/**
+ * Snapping to other elements (aligning their edges while dragging) is on by
+ * default. Turned on once, also for existing users, after which their choice
+ * (Alt+S, or the menu's "Snap to objects") is kept.
+ */
+const enableObjectsSnapByDefault = () => {
+  try {
+    if (localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_OBJECTS_SNAP_DEFAULT)) {
+      return;
+    }
+    const savedState = localStorage.getItem(
+      STORAGE_KEYS.LOCAL_STORAGE_APP_STATE,
+    );
+    localStorage.setItem(
+      STORAGE_KEYS.LOCAL_STORAGE_APP_STATE,
+      JSON.stringify({
+        ...(savedState ? JSON.parse(savedState) : {}),
+        objectsSnapModeEnabled: true,
+      }),
+    );
+    localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_OBJECTS_SNAP_DEFAULT, "1");
+  } catch (error: any) {
+    console.error(error);
+  }
+};
+
 export const importFromLocalStorage = () => {
   let savedElements = null;
   let savedState = null;
+
+  enableObjectsSnapByDefault();
 
   try {
     savedElements = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS);
