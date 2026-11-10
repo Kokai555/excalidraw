@@ -23,6 +23,7 @@ import { trackEvent } from "../analytics";
 import { TunnelsContext, useInitializeTunnels } from "../context/tunnels";
 import { UIAppStateContext } from "../context/ui-appState";
 import { useAtom, useAtomValue } from "../editor-jotai";
+import { textEditorSelectedLinesAtom } from "../wysiwyg/textEditorAtoms";
 
 import { t } from "../i18n";
 import { getScrollToContentState, getSelectedElements } from "../scene";
@@ -196,6 +197,8 @@ const LayerUI = ({
   const TunnelsJotaiProvider = tunnels.tunnelsJotai.Provider;
 
   const [eyeDropperState, setEyeDropperState] = useAtom(activeEyeDropperAtom);
+  // the styles panel shows the style of the edited text's selected lines
+  useAtomValue(textEditorSelectedLinesAtom);
 
   const renderJSONExportDialog = () => {
     if (!UIOptions.canvasActions.export) {

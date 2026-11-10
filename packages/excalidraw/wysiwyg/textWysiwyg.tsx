@@ -83,7 +83,10 @@ import {
   actionZoomOut,
 } from "../actions/actionCanvas";
 
+import { editorJotaiStore } from "../editor-jotai";
+
 import { createStyledTextMirror } from "./styledTextMirror";
+import { textEditorSelectedLinesAtom } from "./textEditorAtoms";
 
 import type { ParsedDataTranferList } from "../clipboard";
 
@@ -1184,7 +1187,7 @@ export const textWysiwyg = ({
     const selectedLines = range ? `${range.from}-${range.to}` : "all";
     if (selectedLines !== lastSelectedLines) {
       lastSelectedLines = selectedLines;
-      app.triggerRender();
+      app.updateEditorAtom(textEditorSelectedLinesAtom, selectedLines);
     }
     styledMirror?.updateSelection();
   };
@@ -1310,6 +1313,7 @@ export const textWysiwyg = ({
     styledMirror = null;
     if (getTextEditorSelection(element.id)) {
       setTextEditorSelection(null);
+      editorJotaiStore.set(textEditorSelectedLinesAtom, null);
     }
     unbindUpdate();
     unsubOnChange();

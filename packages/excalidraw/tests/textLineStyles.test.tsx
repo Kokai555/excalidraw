@@ -21,7 +21,7 @@ import { exportScene } from "../scene/export";
 import { API } from "./helpers/api";
 import { Keyboard } from "./helpers/ui";
 import { getTextEditor } from "./queries/dom";
-import { act, fireEvent, render } from "./test-utils";
+import { act, fireEvent, render, screen } from "./test-utils";
 
 const { h } = window;
 
@@ -78,6 +78,27 @@ describe("per-line text styles", () => {
       null,
       { strokeColor: "#2f9e44", textAlign: "center" },
     ]);
+  });
+
+  it("shows the style of the caret's line in the styles panel", async () => {
+    const editor = await editText();
+    const isChecked = (testId: string) =>
+      screen.queryByTestId<HTMLInputElement>(testId)?.checked;
+
+    // "Teszt": large
+    select(editor, 2);
+    act(() => {
+      h.app.actionManager.executeAction(actionChangeFontSize, "ui", 28);
+    });
+    expect(isChecked("fontSize-large")).toBe(true);
+
+    // moving the caret to another line (no other change) updates the panel
+    act(() => select(editor, 8));
+    expect(isChecked("fontSize-medium")).toBe(true);
+    expect(isChecked("fontSize-large")).toBe(false);
+
+    act(() => select(editor, 2));
+    expect(isChecked("fontSize-large")).toBe(true);
   });
 
   it("styles the lines the selection touches", async () => {
