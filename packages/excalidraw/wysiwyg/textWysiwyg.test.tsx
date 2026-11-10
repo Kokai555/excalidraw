@@ -817,6 +817,25 @@ describe("textWysiwyg", () => {
       restoreOriginalGetBoundingClientRect();
     });
 
+    it("should keep editing when the window loses focus", async () => {
+      // the editor arms its submit-on-blur a tick after the pointer-up
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(document.activeElement).toBe(textarea);
+
+      // switching to another app (Cmd+Tab): the editor is blurred, but stays
+      // the page's active element while the document has no focus
+      const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+      fireEvent.blur(textarea);
+      hasFocus.mockRestore();
+
+      expect(h.state.editingTextElement?.id).toBe(textElement.id);
+      expect(await getTextEditor({ waitForEditor: false })).toBe(textarea);
+
+      // blurring within the page still finishes editing
+      fireEvent.blur(textarea);
+      expect(h.state.editingTextElement).toBeNull();
+    });
+
     it("should add a tab at the start of the first line", () => {
       textarea.value = "Line#1\nLine#2";
       // cursor: "|Line#1\nLine#2"

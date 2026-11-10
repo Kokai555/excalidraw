@@ -1088,6 +1088,16 @@ export const textWysiwyg = ({
     });
   };
 
+  const onEditableBlur = () => {
+    // Switching to another app or window (Cmd+Tab, Alt+Tab) blurs the editor
+    // too, but focus stays on it within the page and returns to it once the
+    // window is focused again, so keep editing.
+    if (ownerDocument.activeElement === editable && !ownerDocument.hasFocus()) {
+      return;
+    }
+    handleSubmit();
+  };
+
   const cleanup = () => {
     // remove events to ensure they don't late-fire
     editable.onblur = null;
@@ -1148,7 +1158,7 @@ export const textWysiwyg = ({
       // let the focus scroll the container: for a box reaching past the
       // viewport, revealing the caret the textarea has until the click's is
       // placed (the end of the value) would pan the canvas there.
-      editable.onblur = handleSubmit;
+      editable.onblur = onEditableBlur;
       editable.focus({ preventScroll: true });
       if (pendingInitialSelection) {
         editable.setSelectionRange(
