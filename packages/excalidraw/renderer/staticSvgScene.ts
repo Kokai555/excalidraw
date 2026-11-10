@@ -10,6 +10,7 @@ import {
   isTestEnv,
   getVerticalOffset,
   applyDarkModeFilter,
+  applyDarkModeFilterToStroke,
   MIME_TYPES,
   STICKY_NOTE_EDGE_SHADOW_OPACITY,
   STICKY_NOTE_EDGE_SHADOW_WIDTH,
@@ -253,7 +254,7 @@ const renderElementToSvg = (
         dateText.setAttribute("direction", "ltr");
         dateText.setAttribute(
           "fill",
-          applyDarkModeFilter(
+          applyDarkModeFilterToStroke(
             element.strokeColor,
             renderConfig.theme === THEME.DARK,
           ),
@@ -534,7 +535,7 @@ const renderElementToSvg = (
           const path = svgRoot.ownerDocument.createElementNS(SVG_NS, "path");
           path.setAttribute(
             "fill",
-            applyDarkModeFilter(
+            applyDarkModeFilterToStroke(
               element.strokeColor,
               renderConfig.theme === THEME.DARK,
             ),
@@ -817,7 +818,7 @@ const renderElementToSvg = (
             text.setAttribute("font-size", `${line.fontSize}px`);
             text.setAttribute(
               "fill",
-              applyDarkModeFilter(
+              applyDarkModeFilterToStroke(
                 line.strokeColor,
                 renderConfig.theme === THEME.DARK,
               ),
@@ -883,7 +884,7 @@ const renderElementToSvg = (
           text.setAttribute("font-size", `${element.fontSize}px`);
           text.setAttribute(
             "fill",
-            applyDarkModeFilter(
+            applyDarkModeFilterToStroke(
               element.strokeColor,
               renderConfig.theme === THEME.DARK,
             ),

@@ -26,6 +26,7 @@ import {
   COLOR_PALETTE,
   LINE_POLYGON_POINT_MERGE_DISTANCE,
   applyDarkModeFilter,
+  applyDarkModeFilterToStroke,
   DEFAULT_STROKE_STREAMLINE,
 } from "@excalidraw/common";
 
@@ -224,7 +225,7 @@ export const generateRoughOptions = (
     fillWeight: element.strokeWidth / 2,
     hachureGap: element.strokeWidth * 4,
     roughness: adjustRoughness(element),
-    stroke: applyDarkModeFilter(element.strokeColor, isDarkMode),
+    stroke: applyDarkModeFilterToStroke(element.strokeColor, isDarkMode),
     preserveVertices:
       continuousPath || element.roughness < ROUGHNESS.cartoonist,
   };
@@ -412,7 +413,10 @@ const getArrowheadShapes = (
     return [];
   }
 
-  const strokeColor = applyDarkModeFilter(element.strokeColor, isDarkMode);
+  const strokeColor = applyDarkModeFilterToStroke(
+    element.strokeColor,
+    isDarkMode,
+  );
   const backgroundFillColor = applyDarkModeFilter(
     canvasBackgroundColor,
     isDarkMode,
