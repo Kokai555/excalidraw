@@ -44,7 +44,11 @@ import {
   projectFixedPointOntoDiagonal,
   isNonDeletedElement,
 } from "@excalidraw/element";
-import { normalizeFixedPoint } from "@excalidraw/element";
+import {
+  getTextParagraphs,
+  normalizeFixedPoint,
+  normalizeLineStyles,
+} from "@excalidraw/element";
 import {
   updateElbowArrowPoints,
   validateElbowPoints,
@@ -587,12 +591,20 @@ export const restoreElement = (
         labelPosition: isFiniteNumber(element.labelPosition)
           ? clamp(element.labelPosition, 0, 1)
           : null,
+        lineStyles: normalizeLineStyles(
+          element.lineStyles,
+          getTextParagraphs(element.originalText || text).length,
+        ),
         // only meaningful for sticky note labels; reconciled against the
         // container in `restoreStickyNotes` once bindings are repaired
         baseFontSize: isFiniteNumber(element.baseFontSize)
           ? normalizeStickyNoteFontSize(element.baseFontSize)
           : null,
       });
+      // only texts with line styles carry the (optional) property
+      if (!element.lineStyles) {
+        delete (element as { lineStyles?: unknown }).lineStyles;
+      }
 
       // if empty text, mark as deleted. We keep in array
       // for data integrity purposes (collab etc.)
