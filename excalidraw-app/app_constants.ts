@@ -43,6 +43,8 @@ export const STORAGE_KEYS = {
   LOCAL_STORAGE_THEME: "excalidraw-theme",
   LOCAL_STORAGE_DEBUG: "excalidraw-debug",
   VERSION_DATA_STATE: "version-dataState",
+  /** set once object snapping got turned on by default */
+  LOCAL_STORAGE_OBJECTS_SNAP_DEFAULT: "excalidraw-objects-snap-default",
   VERSION_FILES: "version-files",
 
   IDB_LIBRARY: "excalidraw-library",
