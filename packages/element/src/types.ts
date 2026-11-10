@@ -288,7 +288,26 @@ export type ExcalidrawTextElement = _ExcalidrawElementBase &
      * so it survives midpoint insertion and other geometry changes.
      * */
     labelPosition?: number | null;
+    /**
+     * Per-line style overrides, indexed by the line (paragraph) of
+     * `originalText` they apply to (see `textLineStyles.ts`). Lines without
+     * an entry use the element's own style.
+     */
+    lineStyles?: readonly (TextLineStyle | null)[] | null;
   }>;
+
+/**
+ * Overrides of a text element's style for one line of its `originalText`.
+ * Wrapped lines take the style of the line they were wrapped from.
+ */
+export type TextLineStyle = Readonly<{
+  /** font size relative to the element's `fontSize` (so resizing scales it) */
+  fontScale?: number;
+  strokeColor?: string;
+  textAlign?: TextAlign;
+  /** 0-100, replaces the element's `opacity` for this line */
+  opacity?: number;
+}>;
 
 export type ExcalidrawBindableElement =
   | ExcalidrawRectangleElement

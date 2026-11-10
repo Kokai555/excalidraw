@@ -40,6 +40,7 @@ import {
   newElementWith,
   newTextElement,
   refreshTextDimensions,
+  remapLineStyles,
   updateBoundElements,
 } from "@excalidraw/element";
 
@@ -184,7 +185,12 @@ export class AppText {
   ) {
     const elementsMap = this.app.scene.getElementsMapIncludingDeleted();
 
-    const updateElement = (nextOriginalText: string, isDeleted: boolean) => {
+    const updateElement = (
+      nextOriginalText: string,
+      isDeleted: boolean,
+      /** the editor's caret after the change, see `remapLineStyles()` */
+      caret?: number,
+    ) => {
       const latestTextElement =
         this.app.scene.getElement<ExcalidrawTextElement>(element.id);
 
@@ -220,13 +226,30 @@ export class AppText {
             return newElementWith(_element, stickyLayout.container);
           }
           if (_element.id === latestTextElement.id && isTextElement(_element)) {
+            // line styles stay on their lines as lines are added/removed
+            const lineStyles = _element.lineStyles
+              ? remapLineStyles(
+                  _element.lineStyles,
+                  _element.originalText,
+                  nextOriginalText,
+                  caret,
+                )
+              : undefined;
             return newElementWith(_element, {
               originalText: nextOriginalText,
               isDeleted: isDeleted ?? _element.isDeleted,
+              ...(lineStyles !== undefined ? { lineStyles } : {}),
               ...(stickyLayout?.text ??
                 // returns (wrapped) text and new dimensions
                 refreshTextDimensions(
-                  _element,
+                  // measured with the line styles of the next text
+                  lineStyles !== undefined
+                    ? {
+                        ..._element,
+                        lineStyles,
+                        originalText: nextOriginalText,
+                      }
+                    : _element,
                   getContainerElement(_element, elementsMap),
                   elementsMap,
                   nextOriginalText,
@@ -293,14 +316,15 @@ export class AppText {
           viewportY - this.app.state.offsetTop,
         ];
       },
-      onChange: withBatchedUpdates((nextOriginalText) => {
-        updateElement(nextOriginalText, false);
-        if (isNonDeletedElement(element)) {
-          updateBoundElements(element, this.app.scene, {
-            renderEnvironment: this.app.renderEnvironment,
-          });
-        }
-      }),
+      onChange: (nextOriginalText, caret) =>
+        withBatchedUpdates(() => {
+          updateElement(nextOriginalText, false, caret);
+          if (isNonDeletedElement(element)) {
+            updateBoundElements(element, this.app.scene, {
+              renderEnvironment: this.app.renderEnvironment,
+            });
+          }
+        })(),
       onSubmit: withBatchedUpdates(({ viaKeyboard, nextOriginalText }) => {
         this.textWysiwygSubmitHandler = null;
 

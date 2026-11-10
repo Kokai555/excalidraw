@@ -58,6 +58,12 @@ import {
   getBoundTextMaxHeight,
   getBoundTextMaxWidth,
 } from "./textElement";
+import {
+  getTextElementLines,
+  getTextLineAlpha,
+  getTextLineX,
+  hasLineStyles,
+} from "./textLineStyles";
 import { getLineHeightInPx } from "./textMeasurements";
 import {
   isTextElement,
@@ -675,6 +681,31 @@ const drawElementOnCanvas = (
           context.canvas.setAttribute("dir", rtl ? "rtl" : "ltr");
         }
         withSavedContext(context, () => {
+          if (hasLineStyles(element)) {
+            // each line with its own font size, color, alignment & opacity
+            const baseAlpha = context.globalAlpha;
+            for (const line of getTextElementLines(element)) {
+              context.font = line.font;
+              context.fillStyle = applyDarkModeFilter(
+                line.strokeColor,
+                renderConfig.theme === THEME.DARK,
+              );
+              context.textAlign = line.textAlign as CanvasTextAlign;
+              context.globalAlpha = getTextLineAlpha(element, line, baseAlpha);
+              context.fillText(
+                line.text,
+                getTextLineX(element, line),
+                line.top +
+                  getVerticalOffset(
+                    element.fontFamily,
+                    line.fontSize,
+                    line.height,
+                  ),
+              );
+            }
+            return;
+          }
+
           context.font = getFontString(element);
           context.fillStyle = applyDarkModeFilter(
             element.strokeColor,

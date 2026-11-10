@@ -42,6 +42,11 @@ import { normalizeText } from "@excalidraw/element";
 import { wrapText } from "@excalidraw/element";
 import { getWrappedTextLines } from "@excalidraw/element";
 import {
+  getSelectedLineRange,
+  getTextEditorSelection,
+  setTextEditorSelection,
+} from "@excalidraw/element";
+import {
   isArrowElement,
   isBoundToContainer,
   isStickyNoteElement,
@@ -265,7 +270,11 @@ export const textWysiwyg = ({
    * Note: `text`, which can be wrapped and therefore different from `originalText`,
    *       is derived from `originalText`
    */
-  onChange?: (nextOriginalText: string) => void;
+  onChange?: (
+    nextOriginalText: string,
+    /** the caret's offset after the change */
+    caret?: number,
+  ) => void;
   onSubmit: (data: { viaKeyboard: boolean; nextOriginalText: string }) => void;
   getViewportCoords: (x: number, y: number) => [number, number];
   element: ExcalidrawTextElement;
@@ -860,7 +869,8 @@ export const textWysiwyg = ({
         editable.selectionStart = selectionStart;
         editable.selectionEnd = selectionStart;
       }
-      onChange(editable.value);
+      onChange(editable.value, editable.selectionEnd);
+      syncSelection();
       // once the update, and any scroll it made (see
       // AppText.handleTextWysiwyg), is in the app's state
       queueMicrotask(followCaretFromUnderPanels);
@@ -1088,6 +1098,34 @@ export const textWysiwyg = ({
     });
   };
 
+  // The selection, which style changes apply to the lines of (see
+  // `getSelectedLineRange`). The styles panel shows the selected lines'
+  // style, so it re-renders when they change.
+  let lastSelectedLines: string | null = null;
+  const syncSelection = () => {
+    if (isDestroyed) {
+      return;
+    }
+    setTextEditorSelection({
+      elementId: element.id,
+      start: editable.selectionStart,
+      end: editable.selectionEnd,
+    });
+    const latest = app.scene.getElement(element.id);
+    const range =
+      latest && isTextElement(latest) ? getSelectedLineRange(latest) : null;
+    const selectedLines = range ? `${range.from}-${range.to}` : "all";
+    if (selectedLines !== lastSelectedLines) {
+      lastSelectedLines = selectedLines;
+      app.triggerRender();
+    }
+  };
+  const onSelectionChange = () => {
+    if (ownerDocument.activeElement === editable) {
+      syncSelection();
+    }
+  };
+
   const onEditableBlur = () => {
     // Switching to another app or window (Cmd+Tab, Alt+Tab) blurs the editor
     // too, but focus stays on it within the page and returns to it once the
@@ -1116,6 +1154,11 @@ export const textWysiwyg = ({
     ownerWindow.removeEventListener("pointerup", bindBlurEvent);
     ownerWindow.removeEventListener("blur", handleSubmit);
     ownerWindow.removeEventListener("beforeunload", handleSubmit);
+    ownerDocument.removeEventListener("selectionchange", onSelectionChange);
+    editable.removeEventListener("select", syncSelection);
+    if (getTextEditorSelection(element.id)) {
+      setTextEditorSelection(null);
+    }
     unbindUpdate();
     unsubOnChange();
     unbindOnScroll();
@@ -1337,7 +1380,10 @@ export const textWysiwyg = ({
     });
   });
   ownerWindow.addEventListener("beforeunload", handleSubmit);
+  ownerDocument.addEventListener("selectionchange", onSelectionChange);
+  editable.addEventListener("select", syncSelection);
   editorBox!.appendChild(editable);
+  syncSelection();
 
   return handleSubmit;
 };

@@ -25,7 +25,13 @@ import {
 } from "@excalidraw/element";
 import { LinearElementEditor } from "@excalidraw/element";
 import { getBoundTextElement, getContainerElement } from "@excalidraw/element";
-import { getLineHeightInPx } from "@excalidraw/element";
+import {
+  getLineHeightInPx,
+  getTextElementLines,
+  getTextLineAlpha,
+  getTextLineX,
+  hasLineStyles,
+} from "@excalidraw/element";
 import {
   isArrowElement,
   isIframeLikeElement,
@@ -789,6 +795,62 @@ const renderElementToSvg = (
             offsetY || 0
           }) rotate(${degree} ${cx} ${cy})`,
         );
+        if (hasLineStyles(element)) {
+          // each line with its own font size, color, alignment & opacity
+          const direction = isRTL(element.text) ? "rtl" : "ltr";
+          for (const line of getTextElementLines(element)) {
+            const text = svgRoot.ownerDocument.createElementNS(SVG_NS, "text");
+            text.textContent = line.text;
+            text.setAttribute("x", `${getTextLineX(element, line)}`);
+            text.setAttribute(
+              "y",
+              `${
+                line.top +
+                getVerticalOffset(
+                  element.fontFamily,
+                  line.fontSize,
+                  line.height,
+                )
+              }`,
+            );
+            text.setAttribute("font-family", getFontFamilyString(element));
+            text.setAttribute("font-size", `${line.fontSize}px`);
+            text.setAttribute(
+              "fill",
+              applyDarkModeFilter(
+                line.strokeColor,
+                renderConfig.theme === THEME.DARK,
+              ),
+            );
+            // overrides the group's (inherited) fill-opacity
+            const lineOpacity = getTextLineAlpha(element, line, opacity);
+            if (lineOpacity !== opacity) {
+              text.setAttribute("fill-opacity", `${lineOpacity}`);
+            }
+            text.setAttribute(
+              "text-anchor",
+              line.textAlign === "center"
+                ? "middle"
+                : line.textAlign === "right" || direction === "rtl"
+                ? "end"
+                : "start",
+            );
+            text.setAttribute("style", "white-space: pre;");
+            text.setAttribute("direction", direction);
+            text.setAttribute("dominant-baseline", "alphabetic");
+            node.appendChild(text);
+          }
+          const g = maybeWrapNodesInFrameClipPath(
+            element,
+            root,
+            [node],
+            renderConfig.frameRendering,
+            elementsMap,
+          );
+          addToRoot(g || node, element);
+          break;
+        }
+
         const lines = element.text.replace(/\r\n?/g, "\n").split("\n");
         const lineHeightPx = getLineHeightInPx(
           element.fontSize,

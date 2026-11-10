@@ -53,6 +53,13 @@ import {
 } from "@excalidraw/element";
 
 import {
+  clearLineStyleKeys,
+  getSelectedLineRange,
+  patchLineStyles,
+  resolveLineStyle,
+} from "@excalidraw/element";
+
+import {
   isArrowElement,
   isBoundToContainer,
   isElbowArrow,
@@ -94,10 +101,15 @@ import type {
   NonDeleted,
   NonDeletedExcalidrawElement,
   TextAlign,
+  TextLineStyle,
   VerticalAlign,
 } from "@excalidraw/element/types";
 
-import type { ElementUpdate, Scene } from "@excalidraw/element";
+import type {
+  ElementUpdate,
+  Scene,
+  TextLineStylePatch,
+} from "@excalidraw/element";
 
 import type { CaptureUpdateActionType } from "@excalidraw/element";
 
@@ -227,6 +239,97 @@ export const changeProperty = (
   });
 };
 
+// -----------------------------------------------------------------------------
+// per-line text styles (see `textLineStyles.ts` in @excalidraw/element)
+// -----------------------------------------------------------------------------
+
+/**
+ * The text being edited, as the lines the editor's selection touches see it
+ * (their font size, color, alignment & opacity), or `null` if style changes
+ * apply to the whole text (single line, everything selected, sticky note
+ * label, …).
+ */
+const getEditedTextLines = (
+  element: ExcalidrawElement,
+  app: AppClassProperties,
+): {
+  element: ExcalidrawTextElement;
+  lines: ExcalidrawTextElement;
+  from: number;
+  to: number;
+} | null => {
+  if (
+    !isTextElement(element) ||
+    element.id !== app.state.editingTextElement?.id
+  ) {
+    return null;
+  }
+  // `editingTextElement` isn't kept up to date, the scene's version is
+  const latest = app.scene.getElement(element.id);
+  const text = latest && isTextElement(latest) ? latest : element;
+  const container = app.scene.getContainerElement(text);
+  if (container && isStickyNoteElement(container)) {
+    // the note's fit owns its label's font size
+    return null;
+  }
+  const range = getSelectedLineRange(text);
+  if (!range) {
+    return null;
+  }
+  return {
+    element: text,
+    lines: { ...text, ...resolveLineStyle(text, range.from) },
+    ...range,
+  };
+};
+
+/**
+ * While editing a multi-line text, applies a style change to the lines the
+ * editor's selection touches. Returns `null` if the change applies to the
+ * whole element instead.
+ */
+const changeEditedTextLines = (
+  element: ExcalidrawElement,
+  app: AppClassProperties,
+  getPatch: (
+    /** the element with the selected lines' style */
+    lines: ExcalidrawTextElement,
+    element: ExcalidrawTextElement,
+  ) => TextLineStylePatch,
+): ExcalidrawTextElement | null => {
+  const edited = getEditedTextLines(element, app);
+  if (!edited) {
+    return null;
+  }
+  const nextElement = newElementWith(edited.element, {
+    lineStyles: patchLineStyles(
+      edited.element,
+      edited.from,
+      edited.to,
+      getPatch(edited.lines, edited.element),
+    ),
+  });
+  redrawTextBoundingBox(
+    nextElement,
+    app.scene.getContainerElement(edited.element),
+    app.scene,
+    app.renderEnvironment,
+  );
+  return nextElement;
+};
+
+/**
+ * A style set on the whole text replaces the lines' own (only texts with
+ * line styles get the property).
+ */
+const clearTextLineStyles = (
+  element: ExcalidrawElement,
+  keys: readonly (keyof TextLineStyle)[],
+): { lineStyles?: ExcalidrawTextElement["lineStyles"] } =>
+  isTextElement(element) && element.lineStyles
+    ? { lineStyles: clearLineStyleKeys(element.lineStyles, keys) }
+    : {};
+
 export const getFormValue = function <T extends Primitive>(
   elements: readonly ExcalidrawElement[],
   app: AppClassProperties,
@@ -244,7 +347,10 @@ export const getFormValue = function <T extends Primitive>(
   let ret: T | null = null;
 
   if (editingTextElement) {
-    ret = getValue(editingTextElement);
+    // while editing, the lines the editor's selection touches
+    ret = getValue(
+      getEditedTextLines(editingTextElement, app)?.lines ?? editingTextElement,
+    );
   }
 
   if (!ret) {
@@ -298,6 +404,11 @@ const changeFontSize = (
   app: AppClassProperties,
   getNewFontSize: (element: ExcalidrawTextElement) => number,
   fallbackValue?: ExcalidrawTextElement["fontSize"],
+  /**
+   * A font size set on the whole text replaces its lines' sizes; relative
+   * changes (increase/decrease) keep the lines' proportions.
+   */
+  replaceLineFontSizes = false,
 ) => {
   const newFontSizes = new Set<number>();
   const elementsMap = app.scene.getNonDeletedElementsMap();
@@ -306,15 +417,29 @@ const changeFontSize = (
     elements,
     appState,
     (oldElement) => {
+      const lineChange = changeEditedTextLines(
+        oldElement,
+        app,
+        (lines, element) => {
+          const newFontSize = getNewFontSize(lines);
+          newFontSizes.add(newFontSize);
+          return { fontScale: newFontSize / element.fontSize };
+        },
+      );
+      if (lineChange) {
+        return lineChange;
+      }
       if (isTextElement(oldElement)) {
         const newFontSize = getNewFontSize(oldElement);
         newFontSizes.add(newFontSize);
         const container = app.scene.getContainerElement(oldElement);
 
-        let newElement: ExcalidrawTextElement = newElementWith(
-          oldElement,
-          getBaseFontSizeUpdate(oldElement, newFontSize, elementsMap),
-        );
+        let newElement: ExcalidrawTextElement = newElementWith(oldElement, {
+          ...getBaseFontSizeUpdate(oldElement, newFontSize, elementsMap),
+          ...(replaceLineFontSizes
+            ? clearTextLineStyles(oldElement, ["fontScale"])
+            : {}),
+        });
         redrawTextBoundingBox(
           newElement,
           container,
@@ -369,7 +494,7 @@ export const actionChangeStrokeColor = register<
   name: "changeStrokeColor",
   label: "labels.stroke",
   trackEvent: false,
-  perform: (elements, appState, value) => {
+  perform: (elements, appState, value, app) => {
     const { color, ...appStateUpdates } = value ?? {};
     if (color === undefined) {
       return {
@@ -390,12 +515,13 @@ export const actionChangeStrokeColor = register<
           elements,
           appState,
           (el) =>
-            hasStrokeColor(el.type)
-              ? newElementWith(
-                  el,
-                  getColorUpdate(el, "strokeColor", color, elementsMap),
-                )
-              : el,
+            changeEditedTextLines(el, app, () => ({ strokeColor: color })) ??
+            (hasStrokeColor(el.type)
+              ? newElementWith(el, {
+                  ...getColorUpdate(el, "strokeColor", color, elementsMap),
+                  ...clearTextLineStyles(el, ["strokeColor"]),
+                })
+              : el),
           true,
         ),
         elementsMap,
@@ -965,14 +1091,16 @@ export const actionChangeOpacity = register<ExcalidrawElement["opacity"]>({
   name: "changeOpacity",
   label: "labels.opacity",
   trackEvent: false,
-  perform: (elements, appState, value) => {
+  perform: (elements, appState, value, app) => {
     return {
       elements: changeProperty(
         elements,
         appState,
         (el) =>
+          changeEditedTextLines(el, app, () => ({ opacity: value })) ??
           newElementWith(el, {
             opacity: value,
+            ...clearTextLineStyles(el, ["opacity"]),
           }),
         true,
       ),
@@ -997,7 +1125,7 @@ export const actionChangeOpacity = register<ExcalidrawElement["opacity"]>({
         onChange={updateData}
         min={0}
         max={100}
-        step={10}
+        step={5}
         testId="opacity"
       />
     );
@@ -1019,6 +1147,7 @@ export const actionChangeFontSize = register<ExcalidrawTextElement["fontSize"]>(
           return value;
         },
         value,
+        true,
       );
     },
     PanelComponent: ({ elements, appState, updateData, app, data }) => {
@@ -1568,10 +1697,19 @@ export const actionChangeTextAlign = register<TextAlign>({
         elements,
         appState,
         (oldElement) => {
+          const lineChange = changeEditedTextLines(oldElement, app, () => ({
+            textAlign: value,
+          }));
+          if (lineChange) {
+            return lineChange;
+          }
           if (isTextElement(oldElement)) {
             const newElement: ExcalidrawTextElement = newElementWith(
               oldElement,
-              { textAlign: value },
+              {
+                textAlign: value,
+                ...clearTextLineStyles(oldElement, ["textAlign"]),
+              },
             );
             redrawTextBoundingBox(
               newElement,

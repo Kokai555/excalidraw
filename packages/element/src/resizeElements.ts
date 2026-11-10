@@ -44,11 +44,10 @@ import {
 } from "./textElement";
 import {
   getMinTextElementWidth,
-  measureText,
   getApproxMinLineWidth,
   getApproxMinLineHeight,
 } from "./textMeasurements";
-import { wrapText } from "./textWrapping";
+import { measureTextElementText, wrapTextElementText } from "./textLineStyles";
 
 import {
   isArrowElement,
@@ -386,18 +385,13 @@ export const resizeSingleTextElement = (
 
     const newWidth = Math.max(minWidth, nextWidth);
 
-    const text = wrapText(
+    const text = wrapTextElementText(
+      element,
       element.originalText,
-      getFontString(element),
       Math.abs(newWidth),
       renderEnvironment,
     );
-    const metrics = measureText(
-      text,
-      getFontString(element),
-      element.lineHeight,
-      renderEnvironment,
-    );
+    const metrics = measureTextElementText(element, text, renderEnvironment);
 
     const newHeight = metrics.height;
 

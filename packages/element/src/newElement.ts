@@ -29,8 +29,12 @@ import {
   normalizeStickyNoteStrokeColor,
 } from "./stickyNote";
 import { getBoundTextMaxWidth } from "./textElement";
+import {
+  hasLineStyles,
+  measureTextElementText,
+  wrapTextElementText,
+} from "./textLineStyles";
 import { normalizeText, measureText } from "./textMeasurements";
-import { wrapText } from "./textWrapping";
 
 import { isLineElement } from "./typeChecks";
 
@@ -407,10 +411,9 @@ const getAdjustedDimensions = (
   width: number;
   height: number;
 } => {
-  let { width: nextWidth, height: nextHeight } = measureText(
+  let { width: nextWidth, height: nextHeight } = measureTextElementText(
+    element,
     nextText,
-    getFontString(element),
-    element.lineHeight,
     renderEnvironment,
   );
 
@@ -430,12 +433,16 @@ const getAdjustedDimensions = (
     !element.containerId &&
     element.autoResize
   ) {
-    const prevMetrics = measureText(
-      element.text,
-      getFontString(element),
-      element.lineHeight,
-      renderEnvironment,
-    );
+    // with line styles, `element` may already carry the next text's styles
+    // (see `refreshTextDimensions`), so the current size is the reference
+    const prevMetrics = hasLineStyles(element)
+      ? { width: element.width, height: element.height }
+      : measureText(
+          element.text,
+          getFontString(element),
+          element.lineHeight,
+          renderEnvironment,
+        );
     const offsets = getTextElementPositionOffsets(element, {
       width: nextWidth - prevMetrics.width,
       height: nextHeight - prevMetrics.height,
@@ -560,12 +567,16 @@ export const refreshTextDimensions = (
     textElement.autoResize &&
     textElement.width <= maxWidth
   ) {
-    const font = getFontString(textElement);
     if (
-      measureText(text, font, textElement.lineHeight, renderEnvironment).width >
+      measureTextElementText(textElement, text, renderEnvironment).width >
       maxWidth
     ) {
-      const wrappedText = wrapText(text, font, maxWidth, renderEnvironment);
+      const wrappedText = wrapTextElementText(
+        textElement,
+        text,
+        maxWidth,
+        renderEnvironment,
+      );
       return {
         text: wrappedText,
         autoResize: false,
@@ -580,9 +591,9 @@ export const refreshTextDimensions = (
     }
   }
   if (container || !textElement.autoResize) {
-    text = wrapText(
+    text = wrapTextElementText(
+      textElement,
       text,
-      getFontString(textElement),
       container
         ? getBoundTextMaxWidth(container, textElement)
         : textElement.width,
