@@ -12,6 +12,7 @@ import {
   applyDarkModeFilter,
   isRTL,
   hasRTLChars,
+  viewportCoordsToSceneCoords,
 } from "@excalidraw/common";
 import { pointFrom, pointRotateRads, type Radians } from "@excalidraw/math";
 
@@ -43,7 +44,11 @@ import { wrapText } from "@excalidraw/element";
 import { getWrappedTextLines } from "@excalidraw/element";
 import {
   getSelectedLineRange,
+  getTextCaretPosition,
   getTextEditorSelection,
+  getTextElementLines,
+  getTextOffsetAtPoint,
+  hasLineStyles,
   setTextEditorSelection,
 } from "@excalidraw/element";
 import {
@@ -77,6 +82,8 @@ import {
   actionZoomIn,
   actionZoomOut,
 } from "../actions/actionCanvas";
+
+import { createStyledTextMirror } from "./styledTextMirror";
 
 import type { ParsedDataTranferList } from "../clipboard";
 
@@ -250,6 +257,24 @@ const getLineCaretXFromNativeLayout = ({
   return measured ? measured.positions[0] - measured.left : null;
 };
 
+const WORD_CHAR_REGEX = /[\p{L}\p{N}_]/u;
+
+/** the word around `offset` (or the character there, if not a word's) */
+const getWordRange = (text: string, offset: number): [number, number] => {
+  let start = offset;
+  let end = offset;
+  while (start > 0 && WORD_CHAR_REGEX.test(text[start - 1])) {
+    start--;
+  }
+  while (end < text.length && WORD_CHAR_REGEX.test(text[end])) {
+    end++;
+  }
+  if (start === end && end < text.length && text[end] !== "\n") {
+    end++;
+  }
+  return [start, end];
+};
+
 type SubmitHandler = () => void;
 
 export const textWysiwyg = ({
@@ -342,6 +367,13 @@ export const textWysiwyg = ({
   };
 
   let LAST_THEME = app.state.theme;
+  /** shows texts with line styles, see createStyledTextMirror */
+  let styledMirror: ReturnType<typeof createStyledTextMirror> | null = null;
+  /** the edited text, as in the scene */
+  const getLatestTextElement = () => {
+    const latest = app.scene.getElement(element.id);
+    return latest && isTextElement(latest) ? latest : null;
+  };
 
   const updateWysiwygStyle = () => {
     LAST_THEME = app.state.theme;
@@ -536,6 +568,7 @@ export const textWysiwyg = ({
       }
 
       app.scene.mutateElement(updatedTextElement, { x: coordX, y: coordY });
+      styledMirror?.update();
     }
   };
 
@@ -576,6 +609,12 @@ export const textWysiwyg = ({
     boxSizing: "content-box",
   });
   editable.value = element.originalText;
+  styledMirror = createStyledTextMirror(editable, {
+    getElement: getLatestTextElement,
+    getTheme: () => app.state.theme,
+    getZoom: () => app.state.zoom.value,
+    renderEnvironment: app.renderEnvironment,
+  });
   updateWysiwygStyle();
 
   const getCaretIndexFromInitialSceneCoords = () => {
@@ -595,6 +634,16 @@ export const textWysiwyg = ({
     );
     const localX = unrotatedX - layout.x;
     const localY = unrotatedY - layout.y;
+    const latestText = getLatestTextElement();
+    if (latestText && hasLineStyles(latestText)) {
+      return getTextOffsetAtPoint(
+        latestText,
+        getTextElementLines(latestText),
+        localX,
+        localY,
+        app.renderEnvironment,
+      );
+    }
     const lines = getWrappedTextLines(
       editable.value,
       layout.font,
@@ -650,6 +699,37 @@ export const textWysiwyg = ({
       editable.selectionDirection === "backward"
         ? editable.selectionStart
         : editable.selectionEnd;
+    const center = pointFrom(
+      layout.x + layout.width / 2,
+      layout.y + layout.height / 2,
+    );
+    const toViewportBounds = (caretX: number, top: number, bottom: number) => {
+      const [[x1, y1], [x2, y2]] = [top, bottom].map((y) => {
+        const [rotatedX, rotatedY] = pointRotateRads(
+          pointFrom(layout.x + caretX, layout.y + y),
+          center,
+          layout.angle,
+        );
+        return getViewportCoords(rotatedX, rotatedY);
+      });
+      return {
+        left: Math.min(x1, x2),
+        right: Math.max(x1, x2),
+        top: Math.min(y1, y2),
+        bottom: Math.max(y1, y2),
+      };
+    };
+
+    const latestText = getLatestTextElement();
+    if (styledMirror?.isActive() && latestText) {
+      const { line, x } = getTextCaretPosition(
+        latestText,
+        styledMirror.getLines(),
+        caret,
+        app.renderEnvironment,
+      );
+      return toViewportBounds(x, line.top, line.top + line.height);
+    }
     const lines = getWrappedTextLines(
       value,
       layout.font,
@@ -691,24 +771,11 @@ export const textWysiwyg = ({
       lineStartX +
       (nativeX ??
         (direction === "rtl" ? lineWidth - widthBefore : widthBefore));
-    const center = pointFrom(
-      layout.x + layout.width / 2,
-      layout.y + layout.height / 2,
+    return toViewportBounds(
+      caretX,
+      lineIndex * layout.lineHeightPx,
+      (lineIndex + 1) * layout.lineHeightPx,
     );
-    const [[x1, y1], [x2, y2]] = [lineIndex, lineIndex + 1].map((index) => {
-      const [x, y] = pointRotateRads(
-        pointFrom(layout.x + caretX, layout.y + index * layout.lineHeightPx),
-        center,
-        layout.angle,
-      );
-      return getViewportCoords(x, y);
-    });
-    return {
-      left: Math.min(x1, x2),
-      right: Math.max(x1, x2),
-      top: Math.min(y1, y2),
-      bottom: Math.max(y1, y2),
-    };
   };
 
   /**
@@ -1119,7 +1186,87 @@ export const textWysiwyg = ({
       lastSelectedLines = selectedLines;
       app.triggerRender();
     }
+    styledMirror?.updateSelection();
   };
+
+  // With line styles, the mirror lays the text out differently than the
+  // (invisible) editor would, so clicks place the caret by its layout.
+  const getOffsetAtClientPoint = (clientX: number, clientY: number) => {
+    const layout = currentTextLayout;
+    const latestText = getLatestTextElement();
+    if (!layout || !latestText || !styledMirror?.isActive()) {
+      return null;
+    }
+    const { x, y } = viewportCoordsToSceneCoords(
+      { clientX, clientY },
+      app.state,
+    );
+    const [localX, localY] = pointRotateRads(
+      pointFrom(x, y),
+      pointFrom(layout.x + layout.width / 2, layout.y + layout.height / 2),
+      -layout.angle as Radians,
+    );
+    return getTextOffsetAtPoint(
+      latestText,
+      styledMirror.getLines(),
+      localX - layout.x,
+      localY - layout.y,
+      app.renderEnvironment,
+    );
+  };
+
+  const onStyledTextMouseDown = (event: MouseEvent) => {
+    if (event.button !== POINTER_BUTTON.MAIN) {
+      return;
+    }
+    const offset = getOffsetAtClientPoint(event.clientX, event.clientY);
+    if (offset === null) {
+      return;
+    }
+    event.preventDefault();
+    editable.focus({ preventScroll: true });
+    const { value } = editable;
+
+    if (event.detail === 2) {
+      const [start, end] = getWordRange(value, offset);
+      editable.setSelectionRange(start, end);
+      return;
+    }
+    if (event.detail >= 3) {
+      const start = value.lastIndexOf("\n", offset - 1) + 1;
+      const end = value.indexOf("\n", offset);
+      editable.setSelectionRange(start, end === -1 ? value.length : end);
+      return;
+    }
+
+    const anchor = !event.shiftKey
+      ? offset
+      : editable.selectionDirection === "backward"
+      ? editable.selectionEnd
+      : editable.selectionStart;
+    const selectTo = (focus: number) =>
+      focus < anchor
+        ? editable.setSelectionRange(focus, anchor, "backward")
+        : editable.setSelectionRange(anchor, focus, "forward");
+    selectTo(offset);
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const focus = getOffsetAtClientPoint(
+        moveEvent.clientX,
+        moveEvent.clientY,
+      );
+      if (focus !== null) {
+        selectTo(focus);
+      }
+    };
+    const onMouseUp = () => {
+      ownerWindow.removeEventListener("mousemove", onMouseMove);
+      ownerWindow.removeEventListener("mouseup", onMouseUp);
+    };
+    ownerWindow.addEventListener("mousemove", onMouseMove);
+    ownerWindow.addEventListener("mouseup", onMouseUp);
+  };
+  const onEditableFocusChange = () => styledMirror?.updateSelection();
   const onSelectionChange = () => {
     if (ownerDocument.activeElement === editable) {
       syncSelection();
@@ -1156,6 +1303,11 @@ export const textWysiwyg = ({
     ownerWindow.removeEventListener("beforeunload", handleSubmit);
     ownerDocument.removeEventListener("selectionchange", onSelectionChange);
     editable.removeEventListener("select", syncSelection);
+    editable.removeEventListener("mousedown", onStyledTextMouseDown);
+    editable.removeEventListener("focus", onEditableFocusChange);
+    editable.removeEventListener("blur", onEditableFocusChange);
+    styledMirror?.destroy();
+    styledMirror = null;
     if (getTextEditorSelection(element.id)) {
       setTextEditorSelection(null);
     }
@@ -1382,7 +1534,11 @@ export const textWysiwyg = ({
   ownerWindow.addEventListener("beforeunload", handleSubmit);
   ownerDocument.addEventListener("selectionchange", onSelectionChange);
   editable.addEventListener("select", syncSelection);
+  editable.addEventListener("mousedown", onStyledTextMouseDown);
+  editable.addEventListener("focus", onEditableFocusChange);
+  editable.addEventListener("blur", onEditableFocusChange);
   editorBox!.appendChild(editable);
+  styledMirror.update();
   syncSelection();
 
   return handleSubmit;

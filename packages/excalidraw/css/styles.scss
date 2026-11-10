@@ -819,6 +819,53 @@ body.excalidraw-cursor-resize * {
     -webkit-text-security: disc;
   }
 
+  // a text with line styles being edited: the mirror shows it (see
+  // wysiwyg/styledTextMirror.ts), the editor itself is invisible
+  .excalidraw-wysiwyg.excalidraw-wysiwyg--styled {
+    color: transparent !important;
+    -webkit-text-fill-color: transparent;
+    caret-color: transparent;
+
+    &::selection {
+      background: transparent;
+    }
+  }
+
+  .excalidraw-wysiwyg-mirror {
+    position: absolute;
+    z-index: var(--zIndex-wysiwyg);
+    pointer-events: none;
+    user-select: none;
+    backface-visibility: hidden;
+
+    &__layer {
+      position: absolute;
+      inset: 0;
+    }
+
+    &__line {
+      position: absolute;
+      white-space: pre;
+    }
+
+    &__selection {
+      position: absolute;
+      background: var(--color-selection);
+      opacity: 0.35;
+    }
+
+    &__caret {
+      position: absolute;
+      animation: excalidraw-wysiwyg-caret-blink 1.06s step-end infinite;
+    }
+  }
+
+  @keyframes excalidraw-wysiwyg-caret-blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
   input[type="text"],
   textarea:not(.excalidraw-wysiwyg) {
     color: var(--text-primary-color);

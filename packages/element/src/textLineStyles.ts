@@ -158,6 +158,16 @@ const getParagraphFont = (element: LineStylesElement, paragraph: number) =>
     fontFamily: element.fontFamily,
   });
 
+export type WrappedTextElementLine = {
+  text: string;
+  /** index of the paragraph (line of `originalText`) it was wrapped from */
+  paragraph: number;
+  /** offset of the line's start in `originalText` */
+  start: number;
+  /** offset of the line's end in `originalText` */
+  end: number;
+};
+
 /**
  * Pairs each line of the (wrapped) `text` with the paragraph of
  * `originalText` it was wrapped from. Wrapping only splits paragraphs (and
@@ -167,55 +177,68 @@ const getParagraphFont = (element: LineStylesElement, paragraph: number) =>
 export const mapWrappedLinesToParagraphs = (
   text: string,
   originalText: string,
-): { text: string; paragraph: number }[] => {
+): WrappedTextElementLine[] => {
   const lines = normalizeEOLs(text).split("\n");
   const paragraphs = getTextParagraphs(originalText);
+  const result: WrappedTextElementLine[] = [];
 
   // every paragraph yields at least one line → nothing was wrapped
   if (lines.length === paragraphs.length) {
-    return lines.map((line, paragraph) => ({ text: line, paragraph }));
+    let start = 0;
+    lines.forEach((line, paragraph) => {
+      result.push({ text: line, paragraph, start, end: start + line.length });
+      start += paragraphs[paragraph].length + 1;
+    });
+    return result;
   }
 
-  const result: { text: string; paragraph: number }[] = [];
   let lineIndex = 0;
+  let paragraphStart = 0;
   for (
     let paragraph = 0;
     paragraph < paragraphs.length && lineIndex < lines.length;
     paragraph++
   ) {
-    let rest = paragraphs[paragraph];
+    const source = paragraphs[paragraph];
+    let position = 0;
     do {
       const line = lines[lineIndex++];
-      result.push({ text: line, paragraph });
-      if (!rest.startsWith(line)) {
-        rest = rest.trimStart();
+      if (!source.startsWith(line, position)) {
+        // whitespace trimmed at the split
+        while (position < source.length && /\s/.test(source[position])) {
+          position++;
+        }
       }
-      if (!rest.startsWith(line)) {
+      const start = paragraphStart + position;
+      result.push({ text: line, paragraph, start, end: start + line.length });
+      if (!source.startsWith(line, position)) {
         // out of sync (shouldn't happen): continue with the next paragraph
-        rest = "";
         break;
       }
-      rest = rest.slice(line.length);
-    } while (rest.trim() && lineIndex < lines.length);
+      position += line.length;
+    } while (source.slice(position).trim() && lineIndex < lines.length);
+    paragraphStart += source.length + 1;
   }
   // (shouldn't happen) lines left over belong to the last paragraph
   while (lineIndex < lines.length) {
+    const end = originalText.length;
     result.push({
       text: lines[lineIndex++],
       paragraph: paragraphs.length - 1,
+      start: end,
+      end,
     });
   }
   return result;
 };
 
-export type TextElementLine = ResolvedLineStyle & {
-  text: string;
-  paragraph: number;
-  font: FontString;
-  /** offset of the line's top from the element's top */
-  top: number;
-  height: number;
-};
+export type TextElementLine = ResolvedLineStyle &
+  WrappedTextElementLine & {
+    font: FontString;
+    /** offset of the line's top from the element's top */
+    top: number;
+    height: number;
+  };
 
 /**
  * The lines of a text element as rendered, with their style & position.
@@ -227,13 +250,12 @@ export const getTextElementLines = (
 ): TextElementLine[] => {
   let top = 0;
   return mapWrappedLinesToParagraphs(text, element.originalText).map(
-    ({ text, paragraph }) => {
-      const style = resolveLineStyle(element, paragraph);
+    (wrappedLine) => {
+      const style = resolveLineStyle(element, wrappedLine.paragraph);
       const height = getLineHeightInPx(style.fontSize, element.lineHeight);
       const line: TextElementLine = {
         ...style,
-        text,
-        paragraph,
+        ...wrappedLine,
         font: getFontString({
           fontSize: style.fontSize,
           fontFamily: element.fontFamily,
@@ -270,6 +292,77 @@ export const getTextLineAlpha = (
   element.opacity > 0
     ? Math.min(1, (elementAlpha * line.opacity) / element.opacity)
     : 0;
+
+/** the left edge of a line's text, relative to the element's */
+export const getTextLineLeft = (
+  element: Pick<ExcalidrawTextElement, "width">,
+  line: TextElementLine,
+  env?: RenderEnvironment,
+) => {
+  const width = getLineWidth(line.text, line.font, env);
+  return line.textAlign === "center"
+    ? (element.width - width) / 2
+    : line.textAlign === "right"
+    ? element.width - width
+    : 0;
+};
+
+/**
+ * Where the caret at `offset` (of `originalText`) is: on the last line
+ * starting at or before it (at a soft break, the start of the next line),
+ * `x` relative to the element's left edge.
+ */
+export const getTextCaretPosition = (
+  element: Pick<ExcalidrawTextElement, "width">,
+  lines: readonly TextElementLine[],
+  offset: number,
+  env?: RenderEnvironment,
+) => {
+  let line = lines[0];
+  for (const candidate of lines) {
+    if (candidate.start <= offset) {
+      line = candidate;
+    }
+  }
+  const chars = Math.min(Math.max(offset - line.start, 0), line.text.length);
+  return {
+    line,
+    x:
+      getTextLineLeft(element, line, env) +
+      getLineWidth(line.text.slice(0, chars), line.font, env),
+  };
+};
+
+/**
+ * The offset of `originalText` closest to a point given relative to the
+ * element's top left corner (e.g. where the text was clicked).
+ */
+export const getTextOffsetAtPoint = (
+  element: Pick<ExcalidrawTextElement, "width">,
+  lines: readonly TextElementLine[],
+  x: number,
+  y: number,
+  env?: RenderEnvironment,
+) => {
+  const line =
+    lines.find((candidate) => y < candidate.top + candidate.height) ??
+    lines[lines.length - 1];
+  const left = getTextLineLeft(element, line, env);
+  let best = 0;
+  let bestDistance = Math.abs(x - left);
+  let prefix = "";
+  for (const char of Array.from(line.text)) {
+    prefix += char;
+    const distance = Math.abs(
+      x - (left + getLineWidth(prefix, line.font, env)),
+    );
+    if (distance < bestDistance) {
+      best = prefix.length;
+      bestDistance = distance;
+    }
+  }
+  return line.start + best;
+};
 
 /**
  * `wrapText()` for a text element: with line styles, each paragraph wraps

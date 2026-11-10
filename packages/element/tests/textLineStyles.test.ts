@@ -3,7 +3,9 @@ import { FONT_FAMILY } from "@excalidraw/common";
 import { setCustomTextMetricsProvider } from "../src/textMeasurements";
 import {
   getSelectedLineRange,
+  getTextCaretPosition,
   getTextElementLines,
+  getTextOffsetAtPoint,
   mapWrappedLinesToParagraphs,
   measureTextElementText,
   normalizeLineStyles,
@@ -144,11 +146,39 @@ describe("layout", () => {
     expect(
       mapWrappedLinesToParagraphs("Hello\nworld\n\nfoo", "Hello world\n\nfoo"),
     ).toEqual([
-      { text: "Hello", paragraph: 0 },
-      { text: "world", paragraph: 0 },
-      { text: "", paragraph: 1 },
-      { text: "foo", paragraph: 2 },
+      { text: "Hello", paragraph: 0, start: 0, end: 5 },
+      // the space at the split is trimmed
+      { text: "world", paragraph: 0, start: 6, end: 11 },
+      { text: "", paragraph: 1, start: 12, end: 12 },
+      { text: "foo", paragraph: 2, start: 13, end: 16 },
     ]);
+  });
+
+  it("finds caret positions and the offsets at points", () => {
+    const element = {
+      ...textElement("ab\nabcd", [{ textAlign: "center" }, BIG]),
+      width: 80,
+    };
+    const lines = getTextElementLines({
+      ...element,
+      text: element.originalText,
+    });
+    // "ab" (20px wide) centered in 80px: from 30 to 50
+    expect(getTextCaretPosition(element, lines, 1)).toMatchObject({
+      line: { paragraph: 0 },
+      x: 40,
+    });
+    // second line, 20px per character, left aligned
+    expect(getTextCaretPosition(element, lines, 5)).toMatchObject({
+      line: { paragraph: 1 },
+      x: 40,
+    });
+    expect(getTextOffsetAtPoint(element, lines, 31, 5)).toBe(0);
+    expect(getTextOffsetAtPoint(element, lines, 49, 5)).toBe(2);
+    // below the first line (12.5px high): the second, 2nd character
+    expect(getTextOffsetAtPoint(element, lines, 29, 20)).toBe(4);
+    // past the last line
+    expect(getTextOffsetAtPoint(element, lines, 500, 500)).toBe(7);
   });
 
   it("wraps and measures each line with its own font size", () => {
