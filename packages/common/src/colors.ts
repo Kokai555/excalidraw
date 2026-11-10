@@ -159,6 +159,35 @@ export const removeDarkModeFilter = (color: string): string => {
   return rgbToHex(restored.r, restored.g, restored.b, alpha);
 };
 
+/**
+ * The most a color's RGB channels may differ for it to count as neutral
+ * (black, white or a gray, including the palette's slightly tinted grays).
+ */
+const NEUTRAL_COLOR_MAX_CHROMA = 24;
+
+/** whether the color is black, white or a gray */
+export const isNeutralColor = (color: string) => {
+  const { r, g, b } = tinycolor(color).toRgb();
+  return Math.max(r, g, b) - Math.min(r, g, b) <= NEUTRAL_COLOR_MAX_CHROMA;
+};
+
+/**
+ * Dark mode for stroke colors (text, lines, outlines): colors show as set,
+ * only neutral ones (black, white, grays) are inverted like everything else,
+ * so that the default black ink stays readable on the dark canvas. Fills
+ * keep `applyDarkModeFilter`, as light fills would glare and lose contrast
+ * with the (light) ink on them.
+ */
+export const applyDarkModeFilterToStroke = (
+  color: string,
+  enable = true,
+): string =>
+  enable && isNeutralColor(color) ? applyDarkModeFilter(color) : color;
+
+/** the stroke color shown as `color` in dark mode (see `applyDarkModeFilterToStroke`) */
+export const removeDarkModeFilterFromStroke = (color: string): string =>
+  isNeutralColor(color) ? removeDarkModeFilter(color) : color;
+
 // ---------------------------------------------------------------------------
 // Color palette
 // ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ import {
   getFontFamilyString,
   isTestEnv,
   MIME_TYPES,
-  applyDarkModeFilter,
+  applyDarkModeFilterToStroke,
   isRTL,
   hasRTLChars,
   viewportCoordsToSceneCoords,
@@ -544,7 +544,7 @@ export const textWysiwyg = ({
         ),
         textAlign,
         verticalAlign,
-        color: applyDarkModeFilter(
+        color: applyDarkModeFilterToStroke(
           updatedTextElement.strokeColor,
           appState.theme === THEME.DARK,
         ),

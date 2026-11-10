@@ -1,9 +1,12 @@
 import {
+  applyDarkModeFilter,
+  applyDarkModeFilterToStroke,
   isTransparent,
   MAX_CUSTOM_COLORS_USED_IN_CANVAS,
+  THEME,
 } from "@excalidraw/common";
 
-import type { ExcalidrawElement } from "@excalidraw/element/types";
+import type { ExcalidrawElement, Theme } from "@excalidraw/element/types";
 
 import type { ColorPickerColor, ColorPaletteCustom } from "@excalidraw/common";
 
@@ -105,3 +108,16 @@ export type ColorPickerType =
   | "canvasBackground"
   | "elementBackground"
   | "elementStroke";
+
+/**
+ * A color as the canvas shows it in the theme: in dark mode, stroke colors
+ * keep their color (see `applyDarkModeFilterToStroke`), others are inverted.
+ */
+export const getColorPickerDisplayColor = (
+  color: string,
+  type: ColorPickerType | undefined,
+  theme: Theme,
+) =>
+  type === "elementStroke"
+    ? applyDarkModeFilterToStroke(color, theme === THEME.DARK)
+    : applyDarkModeFilter(color, theme === THEME.DARK);

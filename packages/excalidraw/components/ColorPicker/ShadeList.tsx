@@ -1,11 +1,7 @@
 import clsx from "clsx";
 import { useEffect, useRef } from "react";
 
-import {
-  applyDarkModeFilter,
-  THEME,
-  type ColorPaletteCustom,
-} from "@excalidraw/common";
+import { type ColorPaletteCustom } from "@excalidraw/common";
 
 import type { Theme } from "@excalidraw/element/types";
 
@@ -16,11 +12,16 @@ import HotkeyLabel from "./HotkeyLabel";
 import {
   activeColorPickerSectionAtom,
   getColorNameAndShadeFromColor,
+  getColorPickerDisplayColor,
 } from "./colorPickerUtils";
 import { useColorPickerDnD } from "./colorTopPicksDnD";
 
+import type { ColorPickerType } from "./colorPickerUtils";
+
 interface ShadeListProps {
   theme: Theme;
+  /** the colors' use, which decides how they show in dark mode */
+  type?: ColorPickerType;
   color: string | null;
   onChange: (color: string) => void;
   palette: ColorPaletteCustom;
@@ -29,6 +30,7 @@ interface ShadeListProps {
 
 export const ShadeList = ({
   theme,
+  type,
   color,
   onChange,
   palette,
@@ -61,10 +63,7 @@ export const ShadeList = ({
       return (
         <div className="color-picker-content--default shades">
           {shades.map((color, i) => {
-            const displayColor = applyDarkModeFilter(
-              color,
-              theme === THEME.DARK,
-            );
+            const displayColor = getColorPickerDisplayColor(color, type, theme);
             return (
               <button
                 ref={

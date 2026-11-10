@@ -186,6 +186,7 @@ export const Picker = React.forwardRef(
               </PickerHeading>
               <CustomColorList
                 theme={theme}
+                type={type}
                 colors={customColors}
                 color={color}
                 label={t("colorPicker.mostUsedCustomColors")}
@@ -198,6 +199,7 @@ export const Picker = React.forwardRef(
             <PickerHeading>{t("colorPicker.colors")}</PickerHeading>
             <PickerColorList
               theme={theme}
+              type={type}
               color={color}
               palette={palette}
               onChange={onChange}
@@ -211,6 +213,7 @@ export const Picker = React.forwardRef(
             <PickerHeading>{t("colorPicker.shades")}</PickerHeading>
             <ShadeList
               theme={theme}
+              type={type}
               color={color}
               onChange={onChange}
               palette={palette}

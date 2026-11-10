@@ -3424,7 +3424,9 @@ describe("textWysiwyg", () => {
     });
 
     it("should update textarea color when theme changes to dark mode and back", async () => {
-      const originalColor = "#ff0000";
+      // dark mode only inverts neutral text colors (see
+      // `applyDarkModeFilterToStroke`)
+      const originalColor = "#1e1e1e";
 
       const textElement = API.createElement({
         type: "text",
@@ -3454,6 +3456,23 @@ describe("textWysiwyg", () => {
         h.app.scene.mutateElement(textElement, {});
       });
       expect(colorsAreEqual(editor.style.color, originalColor)).toBe(true);
+    });
+
+    it("should keep colored text's color in dark mode", async () => {
+      const textElement = API.createElement({
+        type: "text",
+        text: "test",
+        strokeColor: "#ff0000",
+      });
+      API.setElements([textElement]);
+      mouse.doubleClickOn(textElement as ExcalidrawTextElement);
+      const editor = await getTextEditor({ waitForEditor: true });
+
+      act(() => {
+        h.setState({ theme: THEME.DARK });
+        h.app.scene.mutateElement(textElement, {});
+      });
+      expect(colorsAreEqual(editor.style.color, "#ff0000")).toBe(true);
     });
   });
 

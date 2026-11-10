@@ -1,7 +1,9 @@
 import {
   applyDarkModeFilter,
+  applyDarkModeFilterToStroke,
   COLOR_PALETTE,
   removeDarkModeFilter,
+  removeDarkModeFilterFromStroke,
   rgbToHex,
 } from "@excalidraw/common";
 
@@ -301,5 +303,44 @@ describe("rgbToHex", () => {
       // 0.05 * 255 = 12.75 -> rounds to 13 = 0x0d
       expect(rgbToHex(255, 0, 0, 0.05)).toBe("#ff00000d");
     });
+  });
+});
+
+describe("applyDarkModeFilterToStroke", () => {
+  it("keeps colors as they are", () => {
+    for (const color of [
+      "#e03131",
+      "#2f9e44",
+      "#1971c2",
+      "#ff0000",
+      "#ffff00",
+    ]) {
+      expect(applyDarkModeFilterToStroke(color)).toBe(color);
+    }
+  });
+
+  it("inverts black, white & grays, as the rest of dark mode", () => {
+    for (const color of [
+      "#1e1e1e",
+      "#000000",
+      "#ffffff",
+      "#343a40",
+      "#868e96",
+    ]) {
+      expect(applyDarkModeFilterToStroke(color)).toBe(
+        applyDarkModeFilter(color),
+      );
+    }
+  });
+
+  it("does nothing when disabled", () => {
+    expect(applyDarkModeFilterToStroke("#1e1e1e", false)).toBe("#1e1e1e");
+  });
+
+  it("is undone by removeDarkModeFilterFromStroke", () => {
+    expect(removeDarkModeFilterFromStroke("#e03131")).toBe("#e03131");
+    expect(
+      removeDarkModeFilterFromStroke(applyDarkModeFilterToStroke("#1e1e1e")),
+    ).toBe("#1e1e1e");
   });
 });

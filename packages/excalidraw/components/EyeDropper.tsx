@@ -8,6 +8,7 @@ import {
   MIME_TYPES,
   THEME,
   removeDarkModeFilter,
+  removeDarkModeFilterFromStroke,
   rgbToHex,
 } from "@excalidraw/common";
 
@@ -121,8 +122,14 @@ export const EyeDropper: React.FC<{
       return rgbToHex(pixel[0], pixel[1], pixel[2]);
     };
 
+    // the color the picked pixel shows (dark mode inverts fills & neutral
+    // strokes, see `applyDarkModeFilterToStroke`)
     const getColorToApply = (color: string) =>
-      appState.theme === THEME.DARK ? removeDarkModeFilter(color) : color;
+      appState.theme !== THEME.DARK
+        ? color
+        : colorPickerType === "elementStroke"
+        ? removeDarkModeFilterFromStroke(color)
+        : removeDarkModeFilter(color);
 
     const mouseMoveListener = ({
       clientX,

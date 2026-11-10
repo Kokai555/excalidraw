@@ -1,4 +1,4 @@
-import { applyDarkModeFilter, THEME } from "@excalidraw/common";
+import { applyDarkModeFilterToStroke, THEME } from "@excalidraw/common";
 
 import {
   getTextCaretPosition,
@@ -57,7 +57,10 @@ export const createStyledTextMirror = (
   };
 
   const getColor = (line: TextElementLine) =>
-    applyDarkModeFilter(line.strokeColor, opts.getTheme() === THEME.DARK);
+    applyDarkModeFilterToStroke(
+      line.strokeColor,
+      opts.getTheme() === THEME.DARK,
+    );
 
   const updateSelection = () => {
     if (!element || !isActive()) {
